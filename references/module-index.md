@@ -1,4 +1,4 @@
-# Cocos General Modules
+﻿# Cocos General Modules
 
 ## Implemented in V1
 - Prefab Creation
@@ -11,6 +11,12 @@
 - Script UUID Compression
   - Command: `scripts/compress-uuid.mjs`
 
+## Script / Prefab Modules
+- Script Component / Prefab 挂载
+  - Doc: [modules/script-component.md](./modules/script-component.md)
+  - Skill: `Module B: Add Script Component to Prefab (手动挂载组件)` in SKILL.md
+
 ## Placeholder Modules (Not Implemented Yet)
-- [Script Component Workflow](./modules/script-component.md)
 - [Resource Reference Workflow](./modules/resource-reference.md)
+
+
