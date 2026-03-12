@@ -1,6 +1,6 @@
 ---
 name: cocos-general
-description: General Cocos workflow skill. V1 focuses on stable prefab creation from an internal template, then validation before opening in Cocos Creator.
+description: Cocos prefab workflow skill. Trigger for prefab creation/rebuild, prefab structural edits (node hierarchy/component mounting/property wiring), and prefab id validation. Do not trigger for TS-only logic changes or tiny Inspector-level property tweaks.
 ---
 
 # Cocos General
@@ -16,6 +16,20 @@ V1 implementation scope is intentionally narrow: **Prefab Creation** first, with
 
 Use this trigger:
 - `$cocos-general`
+
+## Trigger Optimization (When to use / not use)
+
+Use this skill by default when the task includes one or more of the following:
+- Creating a new prefab from template or from scratch.
+- Rebuilding an existing prefab structure (node hierarchy, component list, serialized refs).
+- Adding/removing/mounting script components in prefab JSON.
+- Batch prefab edits where `__id__`/`cc.CompPrefabInfo` consistency must be validated.
+- Prefab safety checks before opening in Cocos Creator.
+
+Prefer normal coding flow (no skill) when the task is mainly:
+- TypeScript business logic changes with no prefab structural work.
+- Small script-side behavior fixes that do not touch prefab JSON shape.
+- Minor Inspector tweaks already easy to finish in editor (e.g., one-off text copy/color/position update).
 
 ## Module A: Prefab Creation (V1 Implemented)
 
