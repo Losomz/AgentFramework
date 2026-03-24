@@ -191,6 +191,96 @@
    - path-specific instructions
 5. 只在项目里补充项目特有内容，不重复维护通用部分。
 
+## CLI 使用
+
+### 全局安装
+
+推荐直接通过 npm 安装 bootstrap CLI：
+
+```bash
+npm install -g agentframework-cli
+```
+
+安装完成后，可以在任意目录执行：
+
+```bash
+agent-menu
+```
+
+首次执行时会自动：
+
+- 拉取或更新远端 AgentFramework git 仓库。
+- 在本地缓存目录安装 runtime 依赖。
+- 再启动最新的 CLI runtime。
+
+默认缓存目录：
+
+```text
+%USERPROFILE%\.agentframework\runtime
+```
+
+常用命令：
+
+```bash
+agent-menu --list-templates
+agent-menu --list-skills
+```
+
+可选环境变量：
+
+```bash
+AGENTFRAMEWORK_REPO_URL=https://github.com/Losomz/AI-Agents.git
+AGENTFRAMEWORK_HOME=C:\Users\<you>\.agentframework
+```
+
+### 仓库内本地开发
+
+如果你正在维护这个仓库本身，也可以在仓库内直接运行：
+
+```bash
+npm install
+npm run menu
+```
+
+这会直接运行仓库内的 runtime，不经过 bootstrap。
+
+如果需要在本机测试全局入口，但还没有发布到 npm：
+
+```bash
+npm install
+npm link
+agent-menu
+```
+
+### 发布与更新
+
+首次发布前：
+
+```bash
+npm login
+npm pack --dry-run
+npm publish
+```
+
+后续更新分两类：
+
+1. 修改 runtime、skills、模板等 git 仓库内容，用户下次执行 `agent-menu` 会自动拉取。
+2. 只有 bootstrap 本身变更时，才需要更新 `package.json` 中的 `version` 并重新 `npm publish`。
+
+用户安装或升级：
+
+```bash
+npm install -g agentframework-cli
+npm update -g agentframework-cli
+```
+
+### 说明
+
+- `npm run menu` 只在当前仓库目录内可用，这是 npm script 的正常行为。
+- `npm install -g agentframework-cli` 安装的是一个很薄的 bootstrap，不是完整 runtime。
+- `agent-menu` 每次启动时都会从 git 同步 runtime，因此你改仓库内容后通常不需要重新发 npm。
+- 当前方案默认依赖本机可用的 `git` 和 `npm`。
+
 ## 面向不同 AI 工具的思路
 
 这个仓库本身是“中立源仓库”，不要求所有工具都直接识别 `.agents/`。
