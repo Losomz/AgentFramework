@@ -6,8 +6,10 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadPlanToolConfiguration } from "./config.ts";
 import {
 	buildExecuteMessage,
+	buildPlanExecutionMessage,
 	createControlPayload,
 	loadPlanPrompts,
+	messageText,
 	normalizePlanContext,
 	renderPlanPrompt,
 	type MessageLike,
@@ -25,7 +27,7 @@ import {
 	type RuntimePlanState,
 	type SessionEntryLike,
 } from "./state.ts";
-import { findToolViolation, normalizeAdditionalPlanTools, restoreAvailableTools, selectPlanTools } from "./utils.ts";
+import { extractPlanChecklist, extractProposedPlan, findToolViolation, normalizeAdditionalPlanTools, restoreAvailableTools, selectPlanTools } from "./utils.ts";
 
 const defaultExtensionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,6 +63,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 	let actionPromptOpen = false;
 	let executeGeneration = 0;
 	let pendingExecuteMessage: string | undefined;
+	let proposedPlan: string | undefined;
 
 	function availableTools(): string[] {
 		return unique(pi.getAllTools().map((tool) => tool.name));
@@ -206,8 +209,28 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		executeGeneration += 1;
 	}
 
+	function resetProposedPlan(): void {
+		proposedPlan = undefined;
+	}
+
+	function captureProposedPlan(messages: readonly MessageLike[]): void {
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const message = messages[index];
+			if (message.role !== "assistant") continue;
+			const text = messageText(message);
+			const plan = extractProposedPlan(text);
+			const steps = extractPlanChecklist(text);
+			if (plan && steps.length > 0) {
+				proposedPlan = plan;
+				return;
+			}
+		}
+		proposedPlan = undefined;
+	}
+
 	function handleManualToggle(ctx: ExtensionContext): void {
 		invalidateDeferredExecute();
+		resetProposedPlan();
 		reportDiagnostics(ctx);
 		const desired = state.pending?.target ?? state.mode;
 		requestMode(desired === "plan" ? "execute" : "plan", "manual", ctx);
@@ -239,6 +262,28 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		});
 	}
 
+	function requestExecute(content: string, ctx: ExtensionContext): void {
+		const result = requestMode("execute", "execute", ctx);
+		if (result.kind === "pending") pendingExecuteMessage = content;
+		else if (result.mode === "execute") scheduleExecute(content);
+	}
+
+	function compactThenExecute(ctx: ExtensionContext, plan: string): void {
+		const generation = ++executeGeneration;
+		const executeMessage = buildPlanExecutionMessage(prompts.execute, plan);
+		notify(ctx, "Compacting context before execution...");
+		ctx.compact({
+			onComplete: () => {
+				if (generation !== executeGeneration || state.mode !== "plan") return;
+				requestExecute(executeMessage, ctx);
+			},
+			onError: (error) => {
+				if (generation !== executeGeneration || state.mode !== "plan") return;
+				notify(ctx, `Context compaction failed: ${error.message}`);
+			},
+		});
+	}
+
 	pi.registerFlag("plan", {
 		description: "Start in plan mode (analysis, no main-agent write operations)",
 		type: "boolean",
@@ -263,6 +308,10 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	pi.on("before_agent_start", async (_event, ctx) => {
 		reportDiagnostics(ctx);
+		if (state.runMode === undefined) {
+			invalidateDeferredExecute();
+			resetProposedPlan();
+		}
 		beforeStartSeen = true;
 		state.runMode = state.mode;
 		if (state.mode === "plan") {
@@ -287,8 +336,14 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		// A retry/compaction retry starts another low-level run before agent_settled.
 		// Keep the top-level run snapshot and its one-time inactive directive intact.
 		if (state.runMode !== undefined) return;
+		resetProposedPlan();
 		state.runMode = state.mode;
 		state.runControl = state.mode === "plan" ? { kind: "active", revision: state.revision } : undefined;
+	});
+
+	pi.on("agent_end", async (event) => {
+		if (state.runMode !== "plan") return;
+		captureProposedPlan(event.messages as unknown as MessageLike[]);
 	});
 
 	pi.on("context", async (event) => ({
@@ -314,12 +369,24 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			return;
 		}
 
-		if (completedRunMode !== "plan" || state.mode !== "plan" || !ctx.hasUI || actionPromptOpen) return;
+		if (completedRunMode !== "plan" || state.mode !== "plan" || !ctx.hasUI || actionPromptOpen || !proposedPlan) return;
 		actionPromptOpen = true;
 		const promptGeneration = executeGeneration;
+		const plan = proposedPlan;
 		try {
-			const choice = await ctx.ui.select("Plan - what next?", ["Stay", "Execute", "Execute with additional instructions"]);
-			if (promptGeneration !== executeGeneration) return;
+			const choice = await ctx.ui.select("Plan - what next?", [
+				"Execute",
+				"Execute with additional instructions",
+				"Compact context and execute",
+				"Continue conversation",
+			]);
+			if (promptGeneration !== executeGeneration || !choice || choice === "Continue conversation") return;
+
+			if (choice === "Compact context and execute") {
+				compactThenExecute(ctx, plan);
+				return;
+			}
+
 			let executeMessage: string | undefined;
 			if (choice === "Execute") {
 				executeMessage = buildExecuteMessage(prompts.execute);
@@ -334,9 +401,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			}
 			if (!executeMessage) return;
 
-			const result = requestMode("execute", "execute", ctx);
-			if (result.kind === "pending") pendingExecuteMessage = executeMessage;
-			else if (result.mode === "execute") scheduleExecute(executeMessage);
+			requestExecute(executeMessage, ctx);
 		} finally {
 			actionPromptOpen = false;
 		}
@@ -344,6 +409,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	function hydrateCurrentBranch(ctx: ExtensionContext): void {
 		invalidateDeferredExecute();
+		resetProposedPlan();
 		const restored = findLatestPlanState(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
 		requestMode(modeFromState(restored), "hydrate", ctx, restored);
 	}

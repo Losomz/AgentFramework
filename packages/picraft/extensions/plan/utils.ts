@@ -25,6 +25,38 @@ function unique(names: readonly string[]): string[] {
 	return Array.from(new Set(names));
 }
 
+const PROPOSED_PLAN_BLOCK = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i;
+const PLAN_STEP = /^\s*(?:(?:[-*+]\s+)(?:\[[ xX]\]\s*)?|\d+[.)]\s+)(.+?)\s*$/;
+
+function cleanPlanStep(text: string): string {
+	return text
+		.replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
+		.replace(/`([^`]+)`/g, "$1")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/** Extract a visible implementation checklist from a completed Plan response. */
+export function extractProposedPlan(text: string): string | undefined {
+	const proposedBlock = text.match(PROPOSED_PLAN_BLOCK);
+	const plan = proposedBlock?.[1]?.trim();
+	return plan || undefined;
+}
+
+export function extractPlanChecklist(text: string): string[] {
+	const section = extractProposedPlan(text);
+	if (!section) return [];
+
+	const steps: string[] = [];
+	for (const line of section.split(/\r?\n/)) {
+		const match = line.match(PLAN_STEP);
+		if (!match) continue;
+		const step = cleanPlanStep(match[1]);
+		if (step.length > 0) steps.push(step);
+	}
+	return steps;
+}
+
 export function normalizeAdditionalPlanTools(names: readonly string[]): string[] {
 	const normalized = names.map((name) => name.trim());
 	if (normalized.some((name) => !name)) throw new Error("Additional Plan tool names must not be empty");

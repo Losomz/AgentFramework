@@ -10,7 +10,7 @@ const LEGACY_CONTEXT_TYPES = new Set([PLAN_CONTEXT_TYPE, "plan-mode-context", "p
 const FALLBACK_PLAN = `<system-reminder>
 # Plan - System Reminder
 
-Plan mode is ACTIVE. Inspect and plan, but do not modify the workspace or system with the main agent.
+Plan mode is ACTIVE. First decide whether the request is an inquiry or an implementation task. Answer inquiries directly. For implementation tasks, inspect facts, ask only material clarification questions, and output a decision-complete checklist inside exactly one <proposed_plan> block. Do not modify the workspace or system.
 
 Available main-agent tools in Plan mode: {{TOOLS}}
 </system-reminder>`;
@@ -19,7 +19,7 @@ const FALLBACK_INACTIVE = `<system-reminder>
 
 Plan mode is now INACTIVE. Previous Plan-only restrictions no longer apply. Do not execute an earlier plan merely because the mode changed; follow the user's current request.
 </system-reminder>`;
-const FALLBACK_EXECUTE = "Execute the approach discussed above. Plan restrictions are removed and the previous tool set is restored.";
+const FALLBACK_EXECUTE = "Execute the approach discussed above. Plan restrictions are removed and the previous tool set is restored. Continue with implementation and verification only when the user explicitly requested execution. If an approved <proposed_plan> is included below, treat it as the source of user intent, re-read files as needed, and complete its steps in order. Keep changes focused, avoid unrelated refactors, and validate according to the risk of the change.";
 
 export interface PlanPrompts {
 	plan: string;
@@ -76,6 +76,10 @@ export function buildExecuteMessage(template: string, additionalInstructions?: s
 	return extra ? `${template}\n\nAdditional user instructions:\n${extra}` : template;
 }
 
+export function buildPlanExecutionMessage(template: string, plan: string): string {
+	return `${template}\n\nThe approved plan from the previous planning turn is:\n\n<proposed_plan>\n${plan.trim()}\n</proposed_plan>\n\nTreat this plan as the source of user intent, re-read files as needed, and complete implementation and verification.`;
+}
+
 export function createControlPayload(directive: PlanDirective) {
 	return {
 		customType: PLAN_CONTEXT_TYPE,
@@ -106,9 +110,13 @@ function contentText(content: unknown): string {
 		.join("\n");
 }
 
+export function messageText(message: MessageLike): string {
+	return contentText(message.content);
+}
+
 function isLegacyControl(message: MessageLike): boolean {
 	if (message.role !== "user" && message.role !== "custom") return false;
-	const text = contentText(message.content);
+	const text = messageText(message);
 	return (
 		/^\s*<system-reminder>\s*(?:\r?\n)+#\s*Plan(?: Mode)?\s*-\s*System Reminder\b[\s\S]*<\/system-reminder>\s*$/i.test(text) ||
 		/^\s*\[PLAN MODE ACTIVE\]\s*\r?\n\s*You are in plan mode\s*-\s*a read-only exploration mode\b[\s\S]*$/i.test(text) ||

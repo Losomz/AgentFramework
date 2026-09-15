@@ -2,15 +2,30 @@
 
 Plan mode for Pi 0.80.4+. It lets the main agent inspect and plan while withholding its normal write tools, then returns to execution only through an explicit mode change.
 
+Plan classifies each new request during the Plan turn. Inquiries, explanations, comparisons, and code-reading questions are answered directly. A request that intends to change the workspace is treated as a task and must produce a `<proposed_plan>` checklist before the execution choices are shown. A response without a valid plan never opens the execution prompt.
+
 ## Entry points
 
 - `/plan` and `Alt+I` call the same manual-toggle handler.
 - `--plan` enables Plan after session state is restored, so it overrides a persisted disabled state.
-- `Stay`, `Execute`, and `Execute with additional instructions` are shown after an interactive Plan turn.
+- `Execute`, `Execute with additional instructions`, `Compact context and execute`, and `Continue conversation` are shown only after an interactive Plan turn produces a valid implementation checklist. `Execute` is the default choice.
 
 Every transition passes through the single `requestMode()` function in `index.ts`. A switch requested while Pi is running becomes an in-memory pending target; the current run keeps its captured mode and the final target is applied only after `agent_settled` reports Pi idle.
 
 Manual exit is not Execute. It only changes mode and records a one-shot inactive notice for the next real user prompt. Explicit Execute restores tools and sends one `followUp` message with `triggerTurn: true`.
+
+The execution choices are:
+
+1. `Execute`: restore the previous tools and execute the approved plan.
+2. `Execute with additional instructions`: collect extra instructions, then execute.
+3. `Compact context and execute`: compact first; after compaction completes, inject the saved `<proposed_plan>` into a new execution message, restore tools, and execute.
+4. `Continue conversation`: keep Plan mode active without executing. Esc has the same behavior as this option.
+
+## Request routing
+
+The Plan prompt asks the model to distinguish inquiries from implementation tasks after inspecting the available facts. An inquiry is answered directly and does not produce an execution prompt. A task must place its implementation plan inside one `<proposed_plan>` block with at least one numbered or checkbox step. The runtime uses that block as the execution gate, so an ordinary numbered list in an answer does not start execution.
+
+A mixed request that includes an intended workspace change is treated as a task. The execution choices remain explicit: creating a plan never starts implementation by itself.
 
 ## Structure
 

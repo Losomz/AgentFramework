@@ -181,7 +181,7 @@ packages/picraft/extensions/
 - `questionnaire/`：提供模型主动调用的意图澄清工具，支持批量问题、单选、多选和自由输入。
 - `permission/`：提供项目边界与敏感文件审批，以及 `/permissions` 会话授权管理。
 - `mcp/`：通过 `/mcp` 使用 Pi 原生选择栏按服务器和工具控制 stdio/HTTP MCP。
-- `plan/`：提供 `/plan` 计划模式，限制写工具并注入规划提示。
+- `plan/`：提供 `/plan` 计划模式，限制写工具；区分询问与实施任务，仅在生成正式计划清单后提供执行入口。
 - `subagent/`：提供子代理工具、`#AgentName` 快捷委派、per-agent 模型与 thinking 配置面板，以及内置 `General` / `Explore` / `Scout`。
 - `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。
 - `blog/`：提供 `/blog` 文件化日志工作流，如 product、tech、release、work。
