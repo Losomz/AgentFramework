@@ -10,7 +10,7 @@ const LEGACY_CONTEXT_TYPES = new Set([PLAN_CONTEXT_TYPE, "plan-mode-context", "p
 const FALLBACK_PLAN = `<system-reminder>
 # Plan - System Reminder
 
-Plan mode is ACTIVE. First decide whether the request is an inquiry or an implementation task. Answer inquiries directly. For implementation tasks, inspect facts, ask only material clarification questions, and output a decision-complete checklist inside exactly one <proposed_plan> block. Do not modify the workspace or system.
+Plan mode is ACTIVE. First decide whether the request is an inquiry or an implementation task. Answer inquiries directly. For implementation tasks, inspect facts, ask only material clarification questions, and output exactly one concise <proposed_plan> block with a title and numbered or checkbox steps. Include special fenced formats only when the task requires them. Do not modify the workspace or system.
 
 Available main-agent tools in Plan mode: {{TOOLS}}
 </system-reminder>`;

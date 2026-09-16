@@ -26,6 +26,7 @@ function unique(names: readonly string[]): string[] {
 }
 
 const PROPOSED_PLAN_BLOCK = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i;
+const PROPOSED_PLAN_BLOCK_GLOBAL = /<proposed_plan>\s*[\s\S]*?\s*<\/proposed_plan>/gi;
 const PLAN_STEP = /^\s*(?:(?:[-*+]\s+)(?:\[[ xX]\]\s*)?|\d+[.)]\s+)(.+?)\s*$/;
 
 function cleanPlanStep(text: string): string {
@@ -37,6 +38,10 @@ function cleanPlanStep(text: string): string {
 }
 
 /** Extract a visible implementation checklist from a completed Plan response. */
+export function stripProposedPlanBlock(text: string): string {
+	return text.replace(PROPOSED_PLAN_BLOCK_GLOBAL, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function extractProposedPlan(text: string): string | undefined {
 	const proposedBlock = text.match(PROPOSED_PLAN_BLOCK);
 	const plan = proposedBlock?.[1]?.trim();

@@ -27,6 +27,7 @@ import {
 	type RuntimePlanState,
 	type SessionEntryLike,
 } from "./state.ts";
+import { PLAN_EXECUTE_MESSAGE_TYPE, PLAN_PROPOSAL_ENTRY_TYPE, registerPlanRenderers, type PlanProposalEntryData } from "./renderer.ts";
 import { extractPlanChecklist, extractProposedPlan, findToolViolation, normalizeAdditionalPlanTools, restoreAvailableTools, selectPlanTools } from "./utils.ts";
 
 const defaultExtensionDir = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +53,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		? { prompts: options.prompts, diagnostics: [] as string[] }
 		: loadPlanPrompts(options.extensionDir ?? defaultExtensionDir);
 	const prompts = loaded.prompts;
+	registerPlanRenderers(pi);
 	const schedule = options.schedule ?? ((task: () => void) => setImmediate(task));
 	const optionAllowedTools = normalizeAdditionalPlanTools(options.allowedTools ?? []);
 	const reportedDiagnostics = new Set<string>();
@@ -64,6 +66,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 	let executeGeneration = 0;
 	let pendingExecuteMessage: string | undefined;
 	let proposedPlan: string | undefined;
+	let appendedPlanForRun: string | undefined;
 
 	function availableTools(): string[] {
 		return unique(pi.getAllTools().map((tool) => tool.name));
@@ -211,6 +214,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	function resetProposedPlan(): void {
 		proposedPlan = undefined;
+		appendedPlanForRun = undefined;
 	}
 
 	function captureProposedPlan(messages: readonly MessageLike[]): void {
@@ -222,10 +226,17 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			const steps = extractPlanChecklist(text);
 			if (plan && steps.length > 0) {
 				proposedPlan = plan;
+				if (appendedPlanForRun !== plan) {
+					pi.appendEntry<PlanProposalEntryData>(PLAN_PROPOSAL_ENTRY_TYPE, {
+						plan,
+						stepCount: steps.length,
+					});
+					appendedPlanForRun = plan;
+				}
 				return;
 			}
 		}
-		proposedPlan = undefined;
+		if (appendedPlanForRun === undefined) proposedPlan = undefined;
 	}
 
 	function handleManualToggle(ctx: ExtensionContext): void {
@@ -252,7 +263,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			if (generation !== executeGeneration || state.mode !== "execute" || state.pending?.target === "plan") return;
 			pi.sendMessage(
 				{
-					customType: "plan-execute",
+					customType: PLAN_EXECUTE_MESSAGE_TYPE,
 					content,
 					display: true,
 					details: { owner: "plan", kind: "execute", revision: state.revision },

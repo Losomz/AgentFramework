@@ -2,7 +2,7 @@
 
 Plan mode for Pi 0.80.4+. It lets the main agent inspect and plan while withholding its normal write tools, then returns to execution only through an explicit mode change.
 
-Plan classifies each new request during the Plan turn. Inquiries, explanations, comparisons, and code-reading questions are answered directly. A request that intends to change the workspace is treated as a task and must produce a `<proposed_plan>` checklist before the execution choices are shown. A response without a valid plan never opens the execution prompt.
+Plan classifies each new request during the Plan turn. Inquiries, explanations, comparisons, and code-reading questions are answered directly. A request that intends to change the workspace is treated as a task and must produce a concise `<proposed_plan>` checklist before the execution choices are shown. A response without a valid plan never opens the execution prompt.
 
 ## Entry points
 
@@ -21,6 +21,8 @@ The execution choices are:
 3. `Compact context and execute`: compact first; after compaction completes, inject the saved `<proposed_plan>` into a new execution message, restore tools, and execute.
 4. `Continue conversation`: keep Plan mode active without executing. Esc has the same behavior as this option.
 
+The plan body uses ordinary Markdown. PiCraft renders it as a durable `Proposed Plan` card with Pi's Markdown component, so tables, lists, quotes, syntax-highlighted fenced code, and other Markdown remain readable. The card is a TUI entry and does not add duplicate plan content to the model context. The original plan text remains available for execution and compression reinjection.
+
 ## Request routing
 
 The Plan prompt asks the model to distinguish inquiries from implementation tasks after inspecting the available facts. An inquiry is answered directly and does not produce an execution prompt. A task must place its implementation plan inside one `<proposed_plan>` block with at least one numbered or checkbox step. The runtime uses that block as the execution gate, so an ordinary numbered list in an answer does not start execution.
@@ -35,9 +37,9 @@ plan/
 ├── config.ts      # trusted global/project additional-tool configuration
 ├── state.ts       # persisted/runtime state and branch-state decoding
 ├── context.ts     # prompts and hidden-context normalization
-├── utils.ts       # tool intersection and bounded write guard
-├── prompts/
-└── tests/
+├── utils.ts       # tool intersection, plan extraction, and bounded write guard
+├── renderer.ts    # TUI plan-card and execution-message renderers
+└── prompts/
 ```
 
 The extension intentionally has no adapter/controller/ports hierarchy. Pi side effects remain in `index.ts`; the other modules expose small helpers without importing Pi types.

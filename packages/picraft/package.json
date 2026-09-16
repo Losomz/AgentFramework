@@ -1,6 +1,6 @@
 {
   "name": "pi-craft",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "description": "An opinionated Pi workflow suite for planning, intent clarification, permissions, subagents, Git automation, project initialization, and publishing.",
   "license": "MIT",
