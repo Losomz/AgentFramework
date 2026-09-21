@@ -17,6 +17,15 @@ init/
 
 `prompts/base.md` is the base prompt layer and is always injected. Edit it when the default `/init` behavior should change. Add reusable, optional initialization checklists to first-level `templates/*.md` files.
 
+## Shared Development Conventions
+
+The base prompt requires every created or updated `AGENTS.md` to retain these explicit development conventions, for both `default` and all optional templates:
+
+- Do not add or run tests by default, unless the user explicitly requests them or the project has mandatory testing requirements.
+- Every new or modified method or function must have a method-level Chinese comment explaining its purpose, with parameters, return values, and key constraints documented when needed.
+
+These conventions must be retained when keeping `AGENTS.md` concise or filtering out generic advice.
+
 ## What `/init` Does
 
 1. Lets the user choose one optional template mode with Pi's built-in selector:

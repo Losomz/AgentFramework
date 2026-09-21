@@ -6,6 +6,13 @@ Create a compact, coherent, high-signal `AGENTS.md` that helps future coding age
 
 Initialization templates, when provided, are source material and checklists only. They may have been extracted from other projects after removing project-specific details.
 
+## Required Development Conventions
+
+Always preserve both rules below in every created or updated `AGENTS.md`. These explicit development conventions apply to `default` and every optional template. The template filtering and brevity rules below must not remove them as generic advice or omit them for lack of repository evidence.
+
+- **测试**：除非用户明确要求，或项目存在必须遵守的测试要求，否则默认不新增、不运行测试。
+- **中文注释**：开发过程中，新增或修改的方法、函数必须有方法级中文注释，说明用途；必要时补充参数、返回值和关键约束。
+
 ## Critical Template Rules
 
 - Do not paste template text directly into `AGENTS.md`.
@@ -61,7 +68,7 @@ Do not force every section. If the repo is simple, keep `AGENTS.md` simple. If t
 
 ## Writing Rules
 
-Include only high-signal, repo-specific guidance such as:
+In addition to the required development conventions above, include only high-signal, repo-specific guidance such as:
 
 - exact commands and shortcuts the agent would otherwise guess wrong
 - architecture notes that are not obvious from filenames
