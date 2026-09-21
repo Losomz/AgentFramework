@@ -295,6 +295,66 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 		});
 	}
 
+	async function showActionPrompt(ctx: ExtensionContext, requested = false): Promise<void> {
+		if (!ctx.hasUI) return;
+		if (!ctx.isIdle()) {
+			if (requested) notify(ctx, "Plan menu is unavailable while Pi is running. Try /plan menu after it settles.");
+			return;
+		}
+		if (state.mode !== "plan") {
+			if (requested) notify(ctx, "Plan mode is disabled. Use /plan to enable it.");
+			return;
+		}
+		if (actionPromptOpen) {
+			if (requested) notify(ctx, "Plan menu is already open.");
+			return;
+		}
+		const plan = proposedPlan;
+		if (!plan) {
+			if (requested) notify(ctx, "No current plan is available. Ask for an implementation plan first.");
+			return;
+		}
+
+		actionPromptOpen = true;
+		const promptGeneration = executeGeneration;
+		try {
+			const choice = await ctx.ui.select("Plan - what next?", [
+				"Execute",
+				"Compact context and execute",
+				"Execute with additional instructions",
+				"Stay in plan mode",
+			]);
+			if (promptGeneration !== executeGeneration) return;
+			if (!choice || choice === "Stay in plan mode") {
+				notify(ctx, "Staying in Plan. Use /plan menu to reopen the choices.");
+				return;
+			}
+
+			if (choice === "Compact context and execute") {
+				compactThenExecute(ctx, plan);
+				return;
+			}
+
+			let executeMessage: string | undefined;
+			if (choice === "Execute") {
+				executeMessage = buildExecuteMessage(prompts.execute);
+			} else if (choice === "Execute with additional instructions") {
+				const extra = await ctx.ui.input("Additional execution instructions:", "Describe what to add before execution...");
+				if (promptGeneration !== executeGeneration) return;
+				if (!extra?.trim()) {
+					notify(ctx, "No additional instructions provided. Staying in Plan. Use /plan menu to reopen the choices.");
+					return;
+				}
+				executeMessage = buildExecuteMessage(prompts.execute, extra);
+			}
+			if (!executeMessage) return;
+
+			requestExecute(executeMessage, ctx);
+		} finally {
+			actionPromptOpen = false;
+		}
+	}
+
 	pi.registerFlag("plan", {
 		description: "Start in plan mode (analysis, no main-agent write operations)",
 		type: "boolean",
@@ -302,8 +362,16 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 	});
 
 	pi.registerCommand("plan", {
-		description: "Toggle plan mode",
-		handler: async (_args, ctx) => handleManualToggle(ctx),
+		description: "Toggle plan mode, or use /plan menu to reopen the execution choices",
+		getArgumentCompletions: (prefix) => "menu".startsWith(prefix.trim().toLowerCase())
+			? [{ value: "menu", label: "menu", description: "Reopen the current plan's execution choices" }]
+			: null,
+		handler: async (args, ctx) => {
+			const command = args.trim().toLowerCase();
+			if (!command) handleManualToggle(ctx);
+			else if (command === "menu") await showActionPrompt(ctx, true);
+			else notify(ctx, "Usage: /plan to toggle plan mode; /plan menu to reopen the execution choices.");
+		},
 	});
 
 	pi.registerShortcut("alt+i", {
@@ -380,42 +448,7 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 			return;
 		}
 
-		if (completedRunMode !== "plan" || state.mode !== "plan" || !ctx.hasUI || actionPromptOpen || !proposedPlan) return;
-		actionPromptOpen = true;
-		const promptGeneration = executeGeneration;
-		const plan = proposedPlan;
-		try {
-			const choice = await ctx.ui.select("Plan - what next?", [
-				"Execute",
-				"Execute with additional instructions",
-				"Compact context and execute",
-				"Continue conversation",
-			]);
-			if (promptGeneration !== executeGeneration || !choice || choice === "Continue conversation") return;
-
-			if (choice === "Compact context and execute") {
-				compactThenExecute(ctx, plan);
-				return;
-			}
-
-			let executeMessage: string | undefined;
-			if (choice === "Execute") {
-				executeMessage = buildExecuteMessage(prompts.execute);
-			} else if (choice === "Execute with additional instructions") {
-				const extra = await ctx.ui.input("Additional execution instructions:", "Describe what to add before execution...");
-				if (promptGeneration !== executeGeneration) return;
-				if (!extra?.trim()) {
-					notify(ctx, "No additional instructions provided. Staying in Plan.");
-					return;
-				}
-				executeMessage = buildExecuteMessage(prompts.execute, extra);
-			}
-			if (!executeMessage) return;
-
-			requestExecute(executeMessage, ctx);
-		} finally {
-			actionPromptOpen = false;
-		}
+		if (completedRunMode === "plan") await showActionPrompt(ctx);
 	});
 
 	function hydrateCurrentBranch(ctx: ExtensionContext): void {

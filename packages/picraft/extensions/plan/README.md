@@ -7,8 +7,9 @@ Plan classifies each new request during the Plan turn. Inquiries, explanations, 
 ## Entry points
 
 - `/plan` and `Alt+I` call the same manual-toggle handler.
+- `/plan menu` reopens the current plan's execution choices after Esc or `Stay in plan mode`. The `menu` argument supports tab completion.
 - `--plan` enables Plan after session state is restored, so it overrides a persisted disabled state.
-- `Execute`, `Execute with additional instructions`, `Compact context and execute`, and `Continue conversation` are shown only after an interactive Plan turn produces a valid implementation checklist. `Execute` is the default choice.
+- `Execute`, `Compact context and execute`, `Execute with additional instructions`, and `Stay in plan mode` are shown only after an interactive Plan turn produces a valid implementation checklist. `Execute` is the default choice.
 
 Every transition passes through the single `requestMode()` function in `index.ts`. A switch requested while Pi is running becomes an in-memory pending target; the current run keeps its captured mode and the final target is applied only after `agent_settled` reports Pi idle.
 
@@ -17,9 +18,11 @@ Manual exit is not Execute. It only changes mode and records a one-shot inactive
 The execution choices are:
 
 1. `Execute`: restore the previous tools and execute the approved plan.
-2. `Execute with additional instructions`: collect extra instructions, then execute.
-3. `Compact context and execute`: compact first; after compaction completes, inject the saved `<proposed_plan>` into a new execution message, restore tools, and execute.
-4. `Continue conversation`: keep Plan mode active without executing. Esc has the same behavior as this option.
+2. `Compact context and execute`: compact first; after compaction completes, inject the saved `<proposed_plan>` into a new execution message, restore tools, and execute.
+3. `Execute with additional instructions`: collect extra instructions, then execute.
+4. `Stay in plan mode`: keep Plan mode active to discuss or revise the plan without executing. Esc has the same behavior as this option.
+
+Closing the menu or canceling the additional-instructions input keeps the current plan available to `/plan menu`. The command requires Plan mode, an idle agent, and a valid plan from the current planning turn. It reports unavailable or already-open menus without changing mode or starting execution. A new agent run, a manual mode toggle, reload, or session/branch navigation clears the reopenable plan; a new implementation plan is then required.
 
 The plan body uses ordinary Markdown. PiCraft renders it as a durable `Proposed Plan` card with Pi's Markdown component, so tables, lists, quotes, syntax-highlighted fenced code, and other Markdown remain readable. The card is a TUI entry and does not add duplicate plan content to the model context. The original plan text remains available for execution and compression reinjection.
 

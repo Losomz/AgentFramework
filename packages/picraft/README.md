@@ -16,7 +16,7 @@ Restart Pi after installation, or run `/reload` in an existing Pi session.
 
 ## Included Workflows
 
-- Plan: a persistent planning mode that distinguishes inquiries from implementation tasks, gates execution on a proposed plan, and guards write tools with explicit execution handoff.
+- Plan: a persistent planning mode that distinguishes inquiries from implementation tasks, gates execution on a proposed plan, and guards write tools with explicit execution handoff. Use `/plan menu` to reopen dismissed execution choices while the current plan is available.
 - Questionnaire: structured intent clarification with single-choice, multiple-choice, and free-form answers in the Pi TUI.
 - Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing.
 - MCP: lightweight stdio and Streamable HTTP server/tool controls through the Pi TUI.
