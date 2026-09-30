@@ -1,4 +1,4 @@
-import type { ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, KeybindingsManager, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import {
 	Editor,
 	type EditorTheme,
@@ -150,7 +150,7 @@ class QuestionnairePrompt implements Component, Focusable {
 	render(width: number): string[] {
 		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 		const renderWidth = Math.max(1, width);
-		const lines: string[] = [this.theme.fg("accent", "-".repeat(renderWidth))];
+		const lines: string[] = [this.theme.fg("accent", "─".repeat(renderWidth))];
 		const addWrapped = (prefix: string, value: string) => {
 			const prefixWidth = visibleWidth(prefix);
 			if (prefixWidth >= renderWidth) {
@@ -186,7 +186,7 @@ class QuestionnairePrompt implements Component, Focusable {
 					? "Up/Down select  Enter confirm  Esc dismiss"
 					: "Tab/Left/Right navigate  Up/Down select  Enter confirm  Esc dismiss";
 		addWrapped(" ", this.theme.fg("dim", help));
-		lines.push(this.theme.fg("accent", "-".repeat(renderWidth)));
+		lines.push(this.theme.fg("accent", "─".repeat(renderWidth)));
 
 		this.cachedWidth = width;
 		this.cachedLines = lines;
@@ -207,28 +207,53 @@ class QuestionnairePrompt implements Component, Focusable {
 		const selected = this.selected.get(question.id) ?? new Set<string>();
 		for (let index = 0; index < question.options.length; index++) {
 			const option = question.options[index];
-			const active = index === this.optionIndex;
-			const mark = question.multiple ? `[${selected.has(option.label) ? "x" : " "}]` : selected.has(option.label) ? "(*)" : "( )";
-			const recommended = index === question.recommended ? " (Recommended)" : "";
-			addWrapped(active ? "> " : "  ", this.theme.fg(active ? "accent" : "text", `${mark} ${option.label}${recommended}`));
-			if (option.description) addWrapped("      ", this.theme.fg("muted", option.description));
+			this.addOptionRow(lines, addWrapped, {
+				active: index === this.optionIndex,
+				multiple: question.multiple,
+				selected: selected.has(option.label),
+				label: option.label,
+				recommended: index === question.recommended,
+				description: option.description,
+			});
 		}
 
 		const customIndex = question.options.length;
-		const customActive = customIndex === this.optionIndex;
 		const custom = this.customInputs.get(question.id);
-		const customMark = question.multiple ? `[${custom ? "x" : " "}]` : custom ? "(*)" : "( )";
-		addWrapped(
-			customActive ? "> " : "  ",
-			this.theme.fg(customActive ? "accent" : "text", `${customMark} ${CUSTOM_OPTION_LABEL}`),
-		);
-		if (custom && !this.editing) addWrapped("      ", this.theme.fg("muted", custom));
+		this.addOptionRow(lines, addWrapped, {
+			active: customIndex === this.optionIndex,
+			multiple: question.multiple,
+			selected: custom !== undefined,
+			label: CUSTOM_OPTION_LABEL,
+		});
+		if (custom && !this.editing) addWrapped("    ", this.theme.fg("muted", custom));
 
 		if (this.editing) {
 			lines.push("");
 			addWrapped(" ", this.theme.fg("muted", "Your answer:"));
 			for (const line of this.editor.render(Math.max(1, renderWidth - 2))) lines.push(` ${line}`);
 		}
+	}
+
+	private addOptionRow(
+		lines: string[],
+		addWrapped: (prefix: string, value: string) => void,
+		row: {
+			active: boolean;
+			multiple: boolean;
+			selected: boolean;
+			label: string;
+			recommended?: boolean;
+			description?: string;
+		},
+	): void {
+		const mark = row.multiple ? (row.selected ? "■" : "□") : row.selected ? "●" : "○";
+		const markColor: ThemeColor = row.active ? "accent" : row.selected ? "success" : "muted";
+		const recommended = row.recommended ? this.theme.fg("dim", " (Recommended)") : "";
+		addWrapped(
+			row.active ? "> " : "  ",
+			`${this.theme.fg(markColor, mark + " ")}${this.theme.fg(row.active ? "accent" : "text", row.label)}${recommended}`,
+		);
+		if (row.description) addWrapped("    ", this.theme.fg("muted", row.description));
 	}
 
 	private renderReview(lines: string[], addWrapped: (prefix: string, value: string) => void): void {

@@ -107,7 +107,7 @@ export default function questionnaireExtension(pi: ExtensionAPI): void {
 				const answer = answers.get(question.id);
 				const values = [...(answer?.selectedOptions ?? []), ...(answer?.customInput ? [answer.customInput] : [])];
 				const value = values.length > 0 ? values.join(", ") : "Unanswered";
-				return `${theme.fg(values.length > 0 ? "success" : "warning", values.length > 0 ? "[x] " : "[ ] ")}${theme.fg("accent", question.header)}: ${theme.fg("text", value)}`;
+				return `${theme.fg(values.length > 0 ? "success" : "warning", values.length > 0 ? "✓ " : "○ ")}${theme.fg("accent", question.header)}: ${theme.fg("text", value)}`;
 			});
 			return new Text(lines.join("\n"), 0, 0);
 		},

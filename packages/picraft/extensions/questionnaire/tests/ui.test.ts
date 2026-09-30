@@ -47,8 +47,8 @@ test("questionnaire wraps long option descriptions and preserves explicit line b
 
 	await requestQuestionnaire(ctx, questions);
 
-	assert.ok(rendered.filter((line) => line.startsWith("      ")).length >= 4);
-	assert.ok(rendered.some((line) => line.startsWith("      Beta tail marker")));
+	assert.ok(rendered.filter((line) => line.startsWith("    ")).length >= 4);
+	assert.ok(rendered.some((line) => line.startsWith("    Beta tail marker")));
 	assert.match(rendered.join("\n"), /remains/);
 	assert.match(rendered.join("\n"), /visible\./);
 	assert.ok(rendered.every((line) => visibleWidth(line) <= width));
