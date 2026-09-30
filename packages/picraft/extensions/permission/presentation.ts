@@ -27,6 +27,8 @@ export interface PermissionPromptState {
 export type PermissionPromptDecision =
 	| { kind: "once" }
 	| { kind: "always" }
+	| { kind: "auto" }
+	| { kind: "grant" }
 	| { kind: "reject"; feedback?: string };
 
 export type PermissionPromptAction =

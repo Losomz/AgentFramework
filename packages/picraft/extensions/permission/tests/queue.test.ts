@@ -96,6 +96,24 @@ test("allow once does not persist a grant", async () => {
 	assert.equal(grants.list().length, 0);
 });
 
+test("allow_all bypasses the prompt even without a UI", async () => {
+	const queue = new PermissionPromptQueue();
+	const grants = new SessionGrants();
+	let promptCount = 0;
+	const result = await queue.enqueue({
+		...options(grants, async () => {
+			promptCount++;
+			return { kind: "reject" };
+		}),
+		hasUI: false,
+		autoAllow: () => true,
+	});
+
+	assert.deepEqual(result.decision, { kind: "auto" });
+	assert.equal(result.outstanding.length, 1);
+	assert.equal(promptCount, 0);
+});
+
 test("aborted and headless requests return rejection without invoking UI", async () => {
 	const queue = new PermissionPromptQueue();
 	const grants = new SessionGrants();

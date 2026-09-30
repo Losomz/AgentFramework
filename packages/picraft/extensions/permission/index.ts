@@ -1,5 +1,20 @@
-import { type ExtensionAPI, getAgentDir, getPackageDir } from "@earendil-works/pi-coding-agent";
+import {
+	type ExtensionAPI,
+	getAgentDir,
+	getPackageDir,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
+import {
+	formatPermissionModeStatus,
+	PERMISSION_AUDIT_ENTRY,
+	PERMISSION_SUMMARY_ENTRY,
+	permissionActivityWidgetLines,
+	PermissionActivityTracker,
+	registerPermissionActivityRenderers,
+	type PermissionActivityAuthorization,
+	type PermissionActivityEvent,
+} from "./activity.ts";
 import {
 	claimPermissionExtensionRegistration,
 	currentSessionId,
@@ -8,6 +23,7 @@ import {
 	parentSessionId,
 	permissionRequestId,
 	releasePermissionExtensionRegistration,
+	type PermissionAuthorizationMode,
 } from "./authority.ts";
 import {
 	buildPermissionPathPolicy,
@@ -25,28 +41,98 @@ import {
 	PermissionForwardingServer,
 	PermissionSnapshotStore,
 	requestParentPermission,
+	sendPermissionActivity,
 } from "./forwarding.ts";
 import { getOutstandingRequirements, type PermissionPromptDecision } from "./presentation.ts";
 import { requestPermissionDecision } from "./ui.ts";
 
+const PERMISSION_STATUS_KEY = "permission";
+const PERMISSION_WIDGET_KEY = "permission-activity";
+
 export default function permissionExtension(pi: ExtensionAPI): void {
 	if (!claimPermissionExtensionRegistration()) return;
-	const authority = getPermissionRuntime().authority;
+	const runtime = getPermissionRuntime();
+	const authority = runtime.authority;
 	const forwardingRoot = permissionForwardingRoot(getAgentDir());
+	const childProcess = isSubagentProcess();
+	const activity = new PermissionActivityTracker();
+	const policyByCwd = new Map<string, ReturnType<typeof buildPermissionPathPolicy>>();
+	let parentContext: ExtensionContext | undefined;
+	let unsubscribeTerminalFileTrust: (() => void) | undefined;
+	let activityListExpanded = false;
+
+	registerPermissionActivityRenderers(pi);
+
+	const renderActivity = (ctx: ExtensionContext): void => {
+		if (!ctx.hasUI) return;
+		try {
+			const status = formatPermissionModeStatus(authority.modeFor(currentSessionId(ctx)), activity.activeRecords().length);
+			ctx.ui.setStatus(PERMISSION_STATUS_KEY, ctx.ui.theme.fg("accent", status));
+			ctx.ui.setWidget(
+				PERMISSION_WIDGET_KEY,
+				permissionActivityWidgetLines(activity, activityListExpanded),
+				{ placement: "aboveEditor" },
+			);
+		} catch {
+			// UI teardown must not affect permission decisions or audit delivery.
+		}
+	};
+
+	const persistActivityEvent = (event: PermissionActivityEvent, ctx: ExtensionContext): void => {
+		if (event.phase === "finish") pi.appendEntry(PERMISSION_AUDIT_ENTRY, event.record);
+		renderActivity(ctx);
+	};
+
+	const emitActivityEvent = (event: PermissionActivityEvent, ctx: ExtensionContext): void => {
+		if (childProcess) {
+			const parentId = parentSessionId();
+			if (parentId) {
+				sendPermissionActivity(forwardingRoot, parentId, currentSessionId(ctx), event);
+			}
+			return;
+		}
+		persistActivityEvent(event, ctx);
+	};
+
 	const forwardingServer = new PermissionForwardingServer(
 		forwardingRoot,
 		(sessionId) => authority.refreshSnapshot(sessionId),
+		(event) => {
+			activity.applyRemote(event);
+			if (parentContext) persistActivityEvent(event, parentContext);
+		},
 	);
-	const childProcess = isSubagentProcess();
-	const policyByCwd = new Map<string, ReturnType<typeof buildPermissionPathPolicy>>();
-	let unsubscribeTerminalFileTrust: (() => void) | undefined;
+
+	const choosePermissionMode = async (ctx: ExtensionContext, sessionId: string): Promise<void> => {
+		const current = authority.modeFor(sessionId);
+		const selected = await ctx.ui.select(
+			`Permission mode [${permissionModeLabel(current)}]`,
+			["Ask", "Allow all for this session", "Cancel"],
+		);
+		if (!selected || selected === "Cancel") return;
+		if (selected === "Allow all for this session") {
+			const confirmed = await ctx.ui.confirm(
+				"Allow all external permissions for this session?",
+				"External and sensitive-file permission requests will run without another prompt. Explicit policy denials remain blocked.",
+			);
+			if (!confirmed) return;
+			authority.setMode(sessionId, "allow_all");
+		} else {
+			authority.setMode(sessionId, "ask");
+		}
+		renderActivity(ctx);
+	};
 
 	if (!childProcess) authority.configureSnapshotStore(new PermissionSnapshotStore(forwardingRoot));
 
 	pi.on("session_start", (_event, ctx) => {
 		if (childProcess) return;
+		parentContext = ctx;
+		activity.resetRun();
+		activityListExpanded = false;
 		const sessionId = currentSessionId(ctx);
 		authority.activateSession(sessionId);
+		renderActivity(ctx);
 		forwardingServer.start(sessionId, async (forwarded) => {
 			const result = await authority.authorize({
 				sessionId,
@@ -56,7 +142,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 				hasUI: ctx.hasUI,
 				decide: (request) => requestPermissionDecision(ctx, request),
 			});
-			return result.decision ?? { kind: "once" };
+			return result.decision ?? { kind: "grant" };
 		});
 
 		unsubscribeTerminalFileTrust?.();
@@ -69,6 +155,19 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 				return undefined;
 			});
 		}
+	});
+
+	pi.on("agent_start", (_event, ctx) => {
+		activity.resetRun();
+		activityListExpanded = false;
+		renderActivity(ctx);
+	});
+
+	pi.on("agent_end", (_event, ctx) => {
+		if (childProcess) return;
+		const summary = activity.summary();
+		if (summary) pi.appendEntry(PERMISSION_SUMMARY_ENTRY, summary);
+		renderActivity(ctx);
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
@@ -97,12 +196,14 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		}
 		if (policyDecision.effect === "allow") return undefined;
 		const request = policyDecision.request;
+		activity.register(event.toolCallId, request, ctx.cwd);
 
 		let decision: PermissionPromptDecision | undefined;
 		if (childProcess) {
 			const parentId = parentSessionId();
 			const firstView = parentId ? loadParentGrantView(forwardingRoot, parentId) : undefined;
 			const isCovered = (view: NonNullable<typeof firstView>): boolean => {
+				if (view.mode === "allow_all") return true;
 				const inheritedRequest = evaluatePermissionPolicy(toolCall, ctx.cwd, {
 					...localPolicy,
 					approvedReadFiles: [
@@ -115,7 +216,10 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			};
 			if (firstView && isCovered(firstView)) {
 				const confirmedView = parentId ? loadParentGrantView(forwardingRoot, parentId) : undefined;
-				if (confirmedView?.revision === firstView.revision && isCovered(confirmedView)) return undefined;
+				if (confirmedView?.revision === firstView.revision && isCovered(confirmedView)) {
+					activity.setAuthorization(event.toolCallId, confirmedView.mode === "allow_all" ? "auto" : "grant");
+					return undefined;
+				}
 			}
 			decision = parentId
 				? await requestParentPermission({
@@ -139,8 +243,24 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			decision = result.decision;
 		}
 
-		if (!decision || decision.kind === "once" || decision.kind === "always") return undefined;
-		return permissionRejection(decision, childProcess, ctx.hasUI);
+		const authorization = (decision?.kind ?? "grant") as PermissionActivityAuthorization;
+		activity.setAuthorization(event.toolCallId, authorization);
+		if (decision?.kind === "reject") {
+			const activityEvent = activity.finish(event.toolCallId, "blocked");
+			if (activityEvent) emitActivityEvent(activityEvent, ctx);
+			return permissionRejection(decision, childProcess, ctx.hasUI);
+		}
+		return undefined;
+	});
+
+	pi.on("tool_execution_start", (event, ctx) => {
+		const activityEvent = activity.markRunning(event.toolCallId);
+		if (activityEvent) emitActivityEvent(activityEvent, ctx);
+	});
+
+	pi.on("tool_execution_end", (event, ctx) => {
+		const activityEvent = activity.finish(event.toolCallId, event.isError ? "failed" : "succeeded");
+		if (activityEvent) emitActivityEvent(activityEvent, ctx);
 	});
 
 	pi.on("tool_result", (event, ctx) => {
@@ -158,18 +278,40 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("permissions", {
-		description: "Manage session permission grants",
-		handler: async (_args, ctx) => {
+		description: "Manage session permission grants and mode",
+		handler: async (args, ctx) => {
 			if (!ctx.hasUI || childProcess) return;
-			const grants = authority.grantsFor(currentSessionId(ctx));
+			const sessionId = currentSessionId(ctx);
+			const command = args.trim().toLowerCase();
+			if (command === "list") {
+				activityListExpanded = true;
+				renderActivity(ctx);
+				return;
+			}
+			if (command === "list close") {
+				activityListExpanded = false;
+				renderActivity(ctx);
+				return;
+			}
+			if (command === "mode") {
+				await choosePermissionMode(ctx, sessionId);
+				return;
+			}
+			const grants = authority.grantsFor(sessionId);
 			const rules = grants.list();
+			const modeChoice = `Mode: ${permissionModeLabel(authority.modeFor(sessionId))}`;
 			const choices = [
+				modeChoice,
 				...rules.map(formatRule),
 				...(rules.length > 0 ? ["Clear all session grants"] : []),
 				"Cancel",
 			];
 			const selected = await ctx.ui.select("Session permission grants", choices);
 			if (!selected || selected === "Cancel") return;
+			if (selected === modeChoice) {
+				await choosePermissionMode(ctx, sessionId);
+				return;
+			}
 			if (selected === "Clear all session grants") {
 				grants.clear();
 				return;
@@ -182,11 +324,26 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", (_event, ctx) => {
 		unsubscribeTerminalFileTrust?.();
 		unsubscribeTerminalFileTrust = undefined;
+		if (ctx.hasUI) {
+			try {
+				ctx.ui.setStatus(PERMISSION_STATUS_KEY, undefined);
+				ctx.ui.setWidget(PERMISSION_WIDGET_KEY, undefined);
+			} catch {
+				// UI teardown is already in progress.
+			}
+		}
 		forwardingServer.stop();
+		parentContext = undefined;
 		authority.clearSession(currentSessionId(ctx));
 		policyByCwd.clear();
+		activity.resetRun();
+		activityListExpanded = false;
 		releasePermissionExtensionRegistration();
 	});
+}
+
+function permissionModeLabel(mode: PermissionAuthorizationMode): string {
+	return mode === "allow_all" ? "Allow all (session)" : "Ask";
 }
 
 function permissionRejection(

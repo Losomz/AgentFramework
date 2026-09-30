@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+### MCP 迁移
+
+- 移除 PiCraft 自定义 MCP client、配置、状态和 TUI 扩展，改由 Pi 0.99.0+ 内置 MCP 提供连接、`/mcp` 管理、OAuth、resources 和工具 exposure。
+- 清理 `@modelcontextprotocol/sdk` 直接依赖；旧版项目根 `.mcp.json` 需要迁移到 `.pi/mcp.json`，旧 `mcp/` 手工扩展需要禁用或移除。
+
+### Permission 授权模式
+
+- 增加当前会话级 `Ask / Allow all for this session` 模式；全部放行只自动通过 Permission 策略产生的 `ask` 请求，不绕过明确 `deny`，并由父会话统一同步给 Subagent。
+- 增加外部权限活动 widget、session custom audit entries 和 Agent run 汇总；记录工具、代理、目标范围、授权方式、结果与耗时，不写入文件内容、命令输出或敏感参数。
+- Permission 活动显示改为单条活动直接展开、多条活动显示 active 数量，并增加 `/permissions list` 查看完整安全清单；Permission 状态使用 Pi accent 青色。
+
+### AI 吞吐
+
+- 新增正式 `throughput` 扩展，使用 Pi 的流式 message 事件和 Provider usage 计算实时/最终 tok/s，缺失 usage 时回退到 delta 估算，并提供 TTFT、平均速度和 `/throughput` 查看命令。
+
 ### 0.1.9 提示协作边界
 
 - 将 Plan 的固定检查流程压缩为三步，并要求探索与计划深度匹配任务复杂度；简单任务不再默认扩展到调用链、数据流和完整失败面分析。

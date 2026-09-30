@@ -9,8 +9,11 @@ import {
 	type PermissionRequest,
 } from "./core.ts";
 import { PermissionSnapshotStore } from "./forwarding.ts";
+
 import { PermissionPromptQueue, type PermissionPromptResult } from "./queue.ts";
 import type { PermissionPromptDecision } from "./presentation.ts";
+
+export type PermissionAuthorizationMode = "ask" | "allow_all";
 
 const MAX_TRUSTED_FILES_PER_SESSION = 512;
 
@@ -26,13 +29,18 @@ export interface PermissionAuthorizationOptions {
 export class PermissionAuthority {
 	private readonly grantsBySession = new Map<string, SessionGrants>();
 	private readonly trustedFilesBySession = new Map<string, Set<string>>();
+	private readonly modesBySession = new Map<string, PermissionAuthorizationMode>();
 	private readonly revisionsBySession = new Map<string, number>();
 	private readonly queue = new PermissionPromptQueue();
 	private snapshotStore: PermissionSnapshotStore | undefined;
 
 	configureSnapshotStore(store: PermissionSnapshotStore): void {
 		this.snapshotStore = store;
-		for (const sessionId of this.grantsBySession.keys()) this.publishSnapshot(sessionId);
+		for (const sessionId of new Set([
+			...this.grantsBySession.keys(),
+			...this.trustedFilesBySession.keys(),
+			...this.modesBySession.keys(),
+		])) this.publishSnapshot(sessionId);
 	}
 
 	activateSession(sessionId: string): void {
@@ -41,7 +49,18 @@ export class PermissionAuthority {
 	}
 
 	refreshSnapshot(sessionId: string): void {
-		if (this.grantsBySession.has(sessionId)) this.publishSnapshot(sessionId);
+		if (this.grantsBySession.has(sessionId) || this.modesBySession.has(sessionId)) this.publishSnapshot(sessionId);
+	}
+
+	modeFor(sessionId: string): PermissionAuthorizationMode {
+		return this.modesBySession.get(sessionId) ?? "ask";
+	}
+
+	setMode(sessionId: string, mode: PermissionAuthorizationMode): void {
+		if (this.modeFor(sessionId) === mode) return;
+		this.modesBySession.set(sessionId, mode);
+		this.grantsFor(sessionId);
+		this.publishSnapshot(sessionId);
 	}
 
 	authorize(options: PermissionAuthorizationOptions): Promise<PermissionPromptResult> {
@@ -55,6 +74,7 @@ export class PermissionAuthority {
 			isAborted: options.isAborted,
 			hasUI: options.hasUI,
 			decide: options.decide,
+			autoAllow: () => this.modeFor(options.sessionId) === "allow_all",
 		});
 	}
 
@@ -97,6 +117,7 @@ export class PermissionAuthority {
 		this.queue.cancelSession(sessionId);
 		this.grantsBySession.delete(sessionId);
 		this.trustedFilesBySession.delete(sessionId);
+		this.modesBySession.delete(sessionId);
 		this.revisionsBySession.delete(sessionId);
 		this.snapshotStore?.remove(sessionId);
 	}
@@ -105,6 +126,7 @@ export class PermissionAuthority {
 		const sessionIds = new Set([
 			...this.grantsBySession.keys(),
 			...this.trustedFilesBySession.keys(),
+			...this.modesBySession.keys(),
 		]);
 		for (const sessionId of sessionIds) this.clearSession(sessionId);
 	}
@@ -121,6 +143,7 @@ export class PermissionAuthority {
 			revision,
 			this.grantsBySession.get(sessionId)?.list() ?? [],
 			this.trustedFiles(sessionId),
+			this.modeFor(sessionId),
 		);
 		if (published) this.revisionsBySession.set(sessionId, revision);
 	}

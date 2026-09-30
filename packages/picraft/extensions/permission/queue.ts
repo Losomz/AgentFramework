@@ -16,6 +16,7 @@ export interface PermissionPromptOptions {
 	grants: SessionGrants;
 	isAborted: () => boolean;
 	hasUI: boolean;
+	autoAllow?: () => boolean;
 	decide: (request: PermissionRequest) => Promise<PermissionPromptDecision>;
 }
 
@@ -78,6 +79,10 @@ export class PermissionPromptQueue {
 					const outstanding = getOutstandingRequirements(entry.options.request, entry.options.grants);
 					if (outstanding.length === 0) {
 						this.settle(entry, { decision: undefined, outstanding });
+						continue;
+					}
+					if (entry.options.autoAllow?.()) {
+						this.settle(entry, { decision: { kind: "auto" }, outstanding });
 						continue;
 					}
 					if (entry.options.isAborted() || !entry.options.hasUI) {

@@ -18,14 +18,14 @@ Restart Pi after installation, or run `/reload` in an existing Pi session.
 
 - Plan: a persistent planning mode that distinguishes inquiries from implementation tasks, gates execution on a proposed plan, and guards write tools with explicit execution handoff. Use `/plan menu` to reopen dismissed execution choices while the current plan is available.
 - Questionnaire: structured intent clarification with single-choice, multiple-choice, and free-form answers in the Pi TUI.
-- Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing.
-- MCP: lightweight stdio and Streamable HTTP server/tool controls through the Pi TUI.
+- Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing, session-scoped Ask or Allow all modes, compact active-activity display, `/permissions list`, and external-access audit records.
+- Throughput: live and final AI output throughput with provider usage, delta fallback estimation, TTFT, and `/throughput` details.
 - Subagent: bundled General, Explore, and Scout agents with per-agent model and thinking configuration. Scout uses a controlled Git tool and deterministic checkouts under `~/.cache/picraft/scout/repos`.
 - Git: commit, pull, and branch workflows under `/git`.
 - Init: repository-aware `AGENTS.md` initialization with reusable project templates.
 - Blog: file-based product, technical, release, and work log workflows.
 
-PiCraft requires Pi 0.80.4 or newer.
+PiCraft requires Pi 0.80.4 or newer. MCP support is provided by Pi itself starting with Pi 0.99.0.
 
 ## Plan Analysis Tools
 
@@ -41,25 +41,11 @@ Plan keeps a conservative built-in tool set. Add trusted read-only extension too
 
 Configured tools must already be registered and active. Do not list custom tools that can modify files or external state.
 
-## MCP
+## Pi Native MCP
 
-Add compatible `mcpServers` configuration to `~/.pi/agent/mcp.json` or a trusted project's `.mcp.json`, then use `/mcp` to enable servers and individual tools. Servers are disabled by default and connect only when selected.
+PiCraft no longer bundles an MCP client or `/mcp` extension. Pi 0.99.0 and newer versions provide MCP over stdio and Streamable HTTP, including OAuth, resources, and tool exposure controls.
 
-```json
-{
-  "mcpServers": {
-    "local": {
-      "command": "npx",
-      "args": ["-y", "@example/mcp-server"],
-      "env": { "TOKEN": "${MCP_TOKEN}" }
-    },
-    "remote": {
-      "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
-    }
-  }
-}
-```
+Configure global servers in `~/.pi/agent/mcp.json` or project servers in `<project>/.pi/mcp.json`. Use `pi mcp add`, `pi mcp list`, or `/mcp` to manage them. Existing PiCraft configurations in `<project>/.mcp.json` must be moved to `.pi/mcp.json`.
 
 ## Update
 

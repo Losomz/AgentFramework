@@ -21,9 +21,11 @@ import {
 	type PermissionRequest,
 	type PermissionRequirement,
 } from "./core.ts";
+import type { PermissionActivityEvent } from "./activity.ts";
+import type { PermissionAuthorizationMode } from "./authority.ts";
 import type { PermissionPromptDecision } from "./presentation.ts";
 
-const FORWARDING_VERSION = 1;
+const FORWARDING_VERSION = 2;
 const POLL_INTERVAL_MS = 200;
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_JSON_BYTES = 128 * 1024;
@@ -45,6 +47,7 @@ export interface PermissionGrantSnapshot {
 	updatedAt: number;
 	grants: SnapshotGrant[];
 	trustedReadFiles: string[];
+	mode: PermissionAuthorizationMode;
 }
 
 export interface ForwardedPermissionRequest {
@@ -62,13 +65,23 @@ interface ForwardedPermissionResponse {
 	requestId: string;
 	responderSessionId: string;
 	respondedAt: number;
-	decision: { kind: "once" } | { kind: "reject"; feedback?: string };
+	decision: { kind: "once" } | { kind: "always" } | { kind: "auto" } | { kind: "grant" } | { kind: "reject"; feedback?: string };
+}
+
+interface ForwardedPermissionActivity {
+	version: typeof FORWARDING_VERSION;
+	id: string;
+	createdAt: number;
+	targetSessionId: string;
+	requesterSessionId: string;
+	event: PermissionActivityEvent;
 }
 
 interface ForwardingLocation {
 	root: string;
 	requests: string;
 	responses: string;
+	events: string;
 	grants: string;
 }
 
@@ -76,6 +89,7 @@ export interface ParentGrantView {
 	grants: SessionGrants;
 	approvedReadFiles: readonly string[];
 	revision: number;
+	mode: PermissionAuthorizationMode;
 }
 
 export interface ParentPermissionRequestOptions {
@@ -107,6 +121,7 @@ export class PermissionSnapshotStore {
 		revision: number,
 		grants: readonly PermissionRequirement[],
 		approvedReadFiles: readonly string[],
+		mode: PermissionAuthorizationMode = "ask",
 	): boolean {
 		const location = forwardingLocation(this.forwardingRoot, sessionId);
 		if (!location) return false;
@@ -121,6 +136,7 @@ export class PermissionSnapshotStore {
 				alwaysPattern: rule.alwaysPattern,
 			})),
 			trustedReadFiles: Array.from(approvedReadFiles),
+			mode,
 		};
 		return writeJsonAtomic(location.grants, snapshot);
 	}
@@ -157,6 +173,7 @@ export function loadParentGrantView(
 		grants,
 		approvedReadFiles: snapshot.trustedReadFiles,
 		revision: snapshot.revision,
+		mode: snapshot.mode,
 	};
 }
 
@@ -214,9 +231,36 @@ export async function requestParentPermission(
 	return { kind: "reject" };
 }
 
+export function sendPermissionActivity(
+	forwardingRoot: string,
+	parentSessionId: string,
+	requesterSessionId: string,
+	event: PermissionActivityEvent,
+): boolean {
+	const location = forwardingLocation(forwardingRoot, parentSessionId);
+	if (!location || !normalizeSessionId(requesterSessionId)) return false;
+	if (!new PermissionSnapshotStore(forwardingRoot).read(parentSessionId)) return false;
+	const envelope: ForwardedPermissionActivity = {
+		version: FORWARDING_VERSION,
+		id: randomUUID(),
+		createdAt: Date.now(),
+		targetSessionId: parentSessionId,
+		requesterSessionId,
+		event,
+	};
+	return writeJsonAtomic(
+		join(
+			location.events,
+			`${String(envelope.createdAt).padStart(13, "0")}-${event.phase === "start" ? "0" : "1"}-${envelope.id}.json`,
+		),
+		envelope,
+	);
+}
+
 export class PermissionForwardingServer {
 	private readonly forwardingRoot: string;
 	private readonly onHeartbeat?: (sessionId: string) => void;
+	private readonly onActivity?: (event: PermissionActivityEvent) => void;
 	private timer: NodeJS.Timeout | undefined;
 	private sessionId: string | undefined;
 	private handler: ForwardedPermissionHandler | undefined;
@@ -227,9 +271,11 @@ export class PermissionForwardingServer {
 	constructor(
 		forwardingRoot: string,
 		onHeartbeat?: (sessionId: string) => void,
+		onActivity?: (event: PermissionActivityEvent) => void,
 	) {
 		this.forwardingRoot = forwardingRoot;
 		this.onHeartbeat = onHeartbeat;
+		this.onActivity = onActivity;
 	}
 
 	start(sessionId: string, handler: ForwardedPermissionHandler): void {
@@ -257,16 +303,24 @@ export class PermissionForwardingServer {
 		this.heartbeat();
 		if (this.processing) return;
 		const location = forwardingLocation(this.forwardingRoot, this.sessionId);
-		if (!location || !existsSync(location.requests)) return;
+		if (!location) return;
+		const hasRequests = existsSync(location.requests);
+		const hasEvents = existsSync(location.events);
+		if (!hasRequests && !hasEvents) return;
 		const sessionId = this.sessionId;
 		const handler = this.handler;
 		const generation = this.generation;
 		this.processing = true;
 		try {
 			cleanupStaleFiles(location.responses);
+			cleanupStaleFiles(location.events);
 			for (const fileName of listJsonFiles(location.requests)) {
 				if (generation !== this.generation) break;
 				await this.processRequest(location, fileName, sessionId, handler, generation);
+			}
+			for (const fileName of listActivityFiles(location.events)) {
+				if (generation !== this.generation) break;
+				this.processActivity(location, fileName, sessionId, generation);
 			}
 		} finally {
 			this.processing = false;
@@ -325,10 +379,43 @@ export class PermissionForwardingServer {
 			requestId: request.id,
 			responderSessionId: sessionId,
 			respondedAt: Date.now(),
-			decision: decision.kind === "reject" ? decision : { kind: "once" },
+			decision,
 		};
 		ensureDirectory(location.responses);
 		if (writeJsonAtomic(responsePath, response)) safeDelete(requestPath);
+	}
+
+	private processActivity(
+		location: ForwardingLocation,
+		fileName: string,
+		sessionId: string,
+		generation: number,
+	): void {
+		if (generation !== this.generation) return;
+		const eventPath = join(location.events, fileName);
+		const fileId = fileName.slice(16, -5);
+		const envelope = asForwardedActivity(readJson(eventPath));
+		if (
+			!envelope ||
+			envelope.id !== fileId ||
+			envelope.targetSessionId !== sessionId ||
+			Date.now() - envelope.createdAt > REQUEST_TIMEOUT_MS ||
+			envelope.createdAt > Date.now() + 60_000
+		) {
+			safeDelete(eventPath);
+			return;
+		}
+		if (!this.onActivity) {
+			safeDelete(eventPath);
+			return;
+		}
+		try {
+			this.onActivity(envelope.event);
+		} catch {
+			// Activity display must not stop permission forwarding.
+		} finally {
+			safeDelete(eventPath);
+		}
 	}
 }
 
@@ -341,6 +428,7 @@ function forwardingLocation(root: string, sessionId: string): ForwardingLocation
 		root: sessionRoot,
 		requests: join(sessionRoot, "requests"),
 		responses: join(sessionRoot, "responses"),
+		events: join(sessionRoot, "events"),
 		grants: join(sessionRoot, "grants.json"),
 	};
 }
@@ -406,6 +494,16 @@ function listJsonFiles(path: string): string[] {
 	}
 }
 
+function listActivityFiles(path: string): string[] {
+	try {
+		return readdirSync(path)
+			.filter((name) => /^\d{13}-[01]-[0-9a-f-]{36}[.]json$/i.test(name))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
 function cleanupStaleFiles(path: string): void {
 	try {
 		const now = Date.now();
@@ -431,6 +529,7 @@ function cleanupExchange(
 function cleanupEmptyLocation(location: ForwardingLocation): void {
 	tryRemoveEmpty(location.requests);
 	tryRemoveEmpty(location.responses);
+	tryRemoveEmpty(location.events);
 	if (!existsSync(location.grants)) tryRemoveEmpty(location.root);
 }
 
@@ -460,7 +559,8 @@ function asGrantSnapshot(value: unknown, sessionId: string): PermissionGrantSnap
 		!value.grants.every(isSnapshotGrant) ||
 		!Array.isArray(value.trustedReadFiles) ||
 		value.trustedReadFiles.length > 512 ||
-		!value.trustedReadFiles.every((item) => isBoundedString(item, 32_768))
+		!value.trustedReadFiles.every((item) => isBoundedString(item, 32_768)) ||
+		!isPermissionAuthorizationMode(value.mode)
 	) {
 		return undefined;
 	}
@@ -509,6 +609,9 @@ function asForwardedResponse(value: unknown): ForwardedPermissionResponse | unde
 	const decision = value.decision;
 	const validDecision =
 		decision.kind === "once" ||
+		decision.kind === "always" ||
+		decision.kind === "auto" ||
+		decision.kind === "grant" ||
 		(decision.kind === "reject" &&
 			(decision.feedback === undefined || isBoundedString(decision.feedback, 4096)));
 	if (
@@ -521,6 +624,54 @@ function asForwardedResponse(value: unknown): ForwardedPermissionResponse | unde
 		return undefined;
 	}
 	return value as unknown as ForwardedPermissionResponse;
+}
+
+function asForwardedActivity(value: unknown): ForwardedPermissionActivity | undefined {
+	if (!isRecord(value) || !isRecord(value.event)) return undefined;
+	if (
+		value.version !== FORWARDING_VERSION ||
+		!isRequestId(value.id) ||
+		typeof value.createdAt !== "number" ||
+		!normalizeSessionId(value.targetSessionId) ||
+		!normalizeSessionId(value.requesterSessionId) ||
+		!isPermissionActivityEvent(value.event)
+	) {
+		return undefined;
+	}
+	return value as unknown as ForwardedPermissionActivity;
+}
+
+function isPermissionActivityEvent(value: unknown): value is PermissionActivityEvent {
+	if (!isRecord(value) || !isRecord(value.record)) return false;
+	return value.version === 1 &&
+		(value.phase === "start" || value.phase === "finish") &&
+	isPermissionActivityRecord(value.record);
+}
+
+function isPermissionActivityRecord(value: Record<string, unknown>): boolean {
+	return value.version === 1 &&
+		isRequestId(value.id) &&
+		isBoundedString(value.toolCallId, 512) &&
+		(value.agentName === undefined || isBoundedString(value.agentName, 128)) &&
+		isBoundedString(value.toolName, 128) &&
+		isBoundedString(value.summary, 256) &&
+		isBoundedString(value.target, 1024) &&
+		Array.isArray(value.scopes) &&
+		value.scopes.length <= 8 &&
+		value.scopes.every((scope) => isBoundedString(scope, 1024)) &&
+		isPermissionActivityAuthorization(value.authorization) &&
+		isPermissionActivityState(value.state) &&
+		typeof value.startedAt === "number" &&
+		(value.endedAt === undefined || typeof value.endedAt === "number") &&
+		(value.durationMs === undefined || typeof value.durationMs === "number");
+}
+
+function isPermissionActivityAuthorization(value: unknown): boolean {
+	return value === "auto" || value === "once" || value === "always" || value === "grant" || value === "reject" || value === "deny";
+}
+
+function isPermissionActivityState(value: unknown): boolean {
+	return value === "running" || value === "succeeded" || value === "failed" || value === "blocked";
 }
 
 function isPermissionRequest(value: unknown): value is PermissionRequest {
@@ -555,6 +706,10 @@ function isSnapshotGrant(value: unknown): value is SnapshotGrant {
 			isPathAccess(value.access) &&
 			isBoundedString(value.alwaysPattern, 32_768),
 	);
+}
+
+function isPermissionAuthorizationMode(value: unknown): value is PermissionAuthorizationMode {
+	return value === "ask" || value === "allow_all";
 }
 
 function isPermissionName(value: unknown): value is PermissionName {

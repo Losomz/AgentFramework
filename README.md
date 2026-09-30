@@ -2,7 +2,7 @@
 
 个人 AI Agent 工作流、配置与模板仓库。
 
-PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、MCP、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `pi-craft`。
+PiCraft 为 Pi 提供 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 工作流，同时沉淀可复用的 OpenCode skills、Codex Skills、Codex 配置和相关说明文档。GitHub 仓库仍使用 `AgentFramework` 名称，Pi package 名称为 `pi-craft`。
 
 ## 当前目录结构
 
@@ -55,7 +55,7 @@ pi list
 ~/.pi/agent/npm/
 ```
 
-PiCraft 当前要求 Pi 0.80.4 或更高版本。Pi package extension 会以当前用户权限执行并可访问系统资源；内置 Permission 是工具调用审批层，不是操作系统沙箱，安装前应先审查源码。
+PiCraft 当前要求 Pi 0.80.4 或更高版本。MCP 由 Pi 0.99.0+ 内置提供，不属于 PiCraft package；全局配置使用 `~/.pi/agent/mcp.json`，项目配置使用 `<project>/.pi/mcp.json`，通过 `/mcp` 或 `pi mcp` 管理。Pi package extension 会以当前用户权限执行并可访问系统资源；内置 Permission 是工具调用审批层，不是操作系统沙箱，安装前应先审查源码。
 
 发布或更新 npm 包的 PowerShell 流程见 [`docs/npm-publish.md`](docs/npm-publish.md)。
 
@@ -101,9 +101,13 @@ PiCraft 内置 `questionnaire` 工具。主 Agent 在已经检查代码、配置
 
 #### 工具授权
 
-PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但其父目录、相邻文件以及编辑、覆盖和删除操作不继承该信任。Scout 缓存只获得普通读取信任，敏感读取与普通写入仍按原规则审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍保持直接父目录范围。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
+PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。策略采用 `allow / ask / deny` 三态：项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；访问其他外部路径，或读取 `.env`、`auth.json`、`models.json` 时询问。当前会话可通过 `/permissions` 或 `/permissions mode` 切换为 `Allow all for this session`，自动放行所有策略判定为 `ask` 的外部权限，但不会绕过 `deny`。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但其父目录、相邻文件以及编辑、覆盖和删除操作不继承该信任。Scout 缓存只获得普通读取信任，敏感读取与普通写入仍按原规则审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍保持直接父目录范围。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。修改 Pi 安装文件仍按外部写入处理。
 
-审批提供 `Allow once / Allow always / Reject`。Always 只属于当前父对话并区分读写作用域；Subagent 会直接复用仍然有效的父授权，未匹配的请求才转交父 authority。授权提交后会释放同一规则覆盖的 pending 请求，`/permissions` 可查看或撤销；无 UI 或父 authority 不可用时默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
+审批提供 `Allow once / Allow always / Reject`。Always 只属于当前父对话并区分读写作用域；`Allow all for this session` 只在当前父会话内生效，Subagent 继承该模式但不能自行开启；Subagent 会直接复用仍然有效的父授权，未匹配的请求才转交父 authority。授权提交后会释放同一规则覆盖的 pending 请求，`perm: ALL (session)` 会持续显示在状态栏；外部权限实际执行时，编辑器上方 widget 对单条活动直接展开，多条活动显示 `active` 数量并提示使用 `/permissions list`；完整清单包含活动与最近完成记录，任务结束追加权限统计，完成记录写入当前 session 但不进入模型上下文。`/permissions` 可查看或撤销细粒度授权；无 UI 或父 authority 不可用时默认拒绝。权限审批是工具调用策略层，不是操作系统沙箱。
+
+#### AI 吞吐
+
+PiCraft 的 `throughput/` 扩展根据流式响应显示当前 AI 输出速度。它优先使用 Provider 报告的 output usage，缺失时标记并使用 delta 估算；`/throughput` 查看详细吞吐、平均速度、TTFT 和模型，`/throughput on|off` 控制状态显示。
 
 #### 从手工扩展迁移
 
@@ -118,6 +122,8 @@ PiCraft 内置 `permission/` 扩展，不需要安装第三方权限 package。�
 ~/.pi/agent/extensions/init/
 ~/.pi/agent/extensions/blog/
 ```
+
+旧版 PiCraft 若还在 `~/.pi/agent/extensions/mcp/` 留有自定义 MCP 副本，也必须在 `pi config` 中禁用或移除，否则会覆盖 Pi 内置的 `/mcp`。
 
 本地副本与 package 副本同时加载会产生重复命令、工具、快捷键和事件处理器。首次迁移时运行 `pi config`，禁用上述本地入口并保留 package 入口；确认 package 正常后再备份或移除这些目录。不要删除整个 `~/.pi/agent/extensions/`，Orca 等其他扩展仍可能位于其中。
 
@@ -179,8 +185,8 @@ packages/picraft/extensions/
 
 - `init/`：提供 `/init`，用基础说明和可选模板创建或更新目标项目的 `AGENTS.md`。
 - `questionnaire/`：提供模型主动调用的意图澄清工具，支持批量问题、单选、多选和自由输入。
-- `permission/`：提供项目边界与敏感文件审批，以及 `/permissions` 会话授权管理。
-- `mcp/`：通过 `/mcp` 使用 Pi 原生选择栏按服务器和工具控制 stdio/HTTP MCP。
+- `permission/`：提供项目边界与敏感文件审批、会话授权管理、紧凑活动状态和 `/permissions list`。
+- `throughput/`：提供实时与最终 AI 输出吞吐、TTFT 和 `/throughput` 查看命令。
 - `plan/`：提供 `/plan` 计划模式，限制写工具；区分询问与实施任务，仅在生成正式计划清单后提供执行入口。
 - `subagent/`：提供子代理工具、`#AgentName` 快捷委派、per-agent 模型与 thinking 配置面板，以及内置 `General` / `Explore` / `Scout`。
 - `git/`：提供 `/git` 分层入口，包括 commit、pull、branch 等 Git 工作流。

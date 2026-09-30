@@ -39,7 +39,7 @@ pi update npm:pi-craft
 pi remove npm:pi-craft
 ```
 
-使用 `pi install npm:pi-craft@0.1.9` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。
+使用 `pi install npm:pi-craft@0.1.9` 可安装固定版本；固定版本不会被 package 更新命令升级。PiCraft 当前要求 Pi 0.80.4 或更高版本。MCP 由 Pi 0.99.0+ 内置提供，不属于 PiCraft package。
 
 需要跟踪仓库主线或参与开发时，可改用 `pi install git:github.com/Losomz/AgentFramework`。npm 与 Git 是两个不同的 package 身份，不能同时启用；从 Git 来源迁移时先移除 Git package，再安装 npm package。npm 包发布流程见 [`docs/npm-publish.md`](npm-publish.md)。
 
@@ -53,7 +53,6 @@ packages/picraft/extensions/git/index.ts
 packages/picraft/extensions/init/index.ts
 packages/picraft/extensions/blog/index.ts
 packages/picraft/extensions/permission/index.ts
-packages/picraft/extensions/mcp/index.ts
 packages/picraft/skills/
 packages/picraft/prompts/
 packages/picraft/themes/
@@ -67,35 +66,21 @@ PiCraft 注册 `questionnaire` 工具，让主 Agent 在无法从代码、配置
 
 TUI 使用富交互界面。RPC、JSON、Print 与独立 Subagent 不提供 Pi TUI，扩展会从 active tools 移除该工具；子 Agent 应把关键歧义返回父对话。若已安装其他同名 `questionnaire` 扩展，应在 `pi config` 中只保留一个入口。
 
-### MCP
+### MCP（Pi 内置）
 
-PiCraft 的 `/mcp` 使用 Pi 原生选择栏控制 MCP server 和单个工具，不提供额外管理面板。配置兼容 `mcpServers` 格式，读取 `~/.pi/agent/mcp.json` 和已信任项目的 `<project>/.mcp.json`，项目同名 server 覆盖全局配置。支持 `command / args / env / cwd` stdio server，以及 `url / headers` Streamable HTTP server；字符串中的 `${ENV_NAME}` 会读取当前环境变量。
+MCP 不再由 PiCraft 扩展实现。Pi 0.99.0+ 内置 MCP，支持 stdio 和 Streamable HTTP server、OAuth、resources 以及 `exposure` / `toolExposure` 控制；由 Pi 内置 `/mcp` 和 `pi mcp` 命令管理。
 
-所有 server 默认关闭，只有打开配置页或恢复当前会话已启用状态时才连接。一级列表选择 server，二级列表开关 server 和工具；工具启用状态写入当前 Pi 会话，MCP 配置、token 和 server 进程本身不写入会话内容。首版只桥接 tools，不桥接 MCP resources、prompts、sampling 或 OAuth。
+全局配置使用 `~/.pi/agent/mcp.json`，已信任项目配置使用 `<project>/.pi/mcp.json`。配置仍使用 `mcpServers` 格式；`pi mcp add`、`pi mcp list`、`pi mcp login/logout` 可在 shell 中管理，TUI 中使用 `/mcp`。
 
-```json
-{
-  "mcpServers": {
-    "local": {
-      "command": "npx",
-      "args": ["-y", "@example/mcp-server"],
-      "env": { "TOKEN": "${MCP_TOKEN}" }
-    },
-    "remote": {
-      "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
-    }
-  }
-}
-```
+旧版 PiCraft 使用项目根 `.mcp.json`，该文件不会被原生 Pi 自动读取，需要手工移动或合并到 `.pi/mcp.json`。旧扩展生成的 `picraft-mcp-state` 会话状态和 `mcp_<server>_<tool>_<hash>` 工具名也不再使用，原生工具名称为 `mcp__<server>__<tool>`。
 
-启用 MCP server 或工具代表允许模型调用它。PiCraft Permission 只能识别桥接后的工具名，不能可靠推断 MCP server 内部的文件、网络或破坏性行为；只配置可信 server，并在 `/mcp` 中保持不需要的工具关闭。
+PiCraft Permission 仍会通过 Pi 的工具调用流程处理原生 MCP 工具；MCP server 本身仍可访问外部系统，只配置可信 server，并审查其工具暴露和权限。
 
 ### 工具授权
 
-PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但目录、相邻文件和任何写操作不会因此放行。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
+PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。当前会话可通过 `/permissions` 或 `/permissions mode` 切换为 `Allow all for this session`，自动放行所有策略判定为 `ask` 的外部权限，但不会绕过 `deny`。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但目录、相邻文件和任何写操作不会因此放行。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
 
-审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
+审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；`Allow all for this session` 只在当前父会话内生效，Subagent 继承该模式但不能自行开启；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。`perm: ALL (session)` 会显示在状态栏；外部权限实际执行时，编辑器上方 widget 显示 `RUN` 和完成结果，任务结束追加权限统计，完成记录写入当前 session 但不进入模型上下文。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空细粒度授权。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
 
 ### 从手工副本迁移
 
@@ -104,7 +89,7 @@ Pi package 的管理目录与 `~/.pi/agent/extensions/` 相互独立。安装 pa
 首次迁移步骤：
 
 1. 执行 `pi install npm:pi-craft`。
-2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 入口，保留 package 入口。
+2. 执行 `pi config`，禁用 `~/.pi/agent/extensions/` 中的 Plan、Questionnaire、Permission、Subagent、Git、Init 和 Blog 入口，保留 package 入口；如果旧版 PiCraft 还留下 `mcp/`，一并禁用或移除它，让 Pi 内置 MCP 接管 `/mcp`。
 3. 重启 Pi，确认 `/plan`、`/permissions`、`/subagent`、`/git`、`/init` 和 `/blog` 各只有一个入口。
 4. 确认功能正常后，备份或移除上述本地扩展目录。
 
@@ -207,6 +192,7 @@ Pi 官方项目级配置目录是项目根目录下的 `.pi/`：
 ├── AGENTS.md              # 项目上下文指令；Pi 会从当前目录向上查找 AGENTS.md/CLAUDE.md
 └── .pi/
     ├── settings.json      # 项目设置；覆盖/合并全局 settings.json
+    ├── mcp.json           # 项目级 MCP servers；仅在项目受信任后读取
     ├── SYSTEM.md          # 项目级 system prompt，替换默认 system prompt
     ├── APPEND_SYSTEM.md   # 项目级追加 system prompt
     ├── extensions/        # 项目级 extensions

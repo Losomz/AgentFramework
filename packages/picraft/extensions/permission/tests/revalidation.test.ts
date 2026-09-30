@@ -96,6 +96,18 @@ test("authority suppresses every read requirement for an exact trusted file", as
 	}
 });
 
+test("parent snapshots carry the session authorization mode", () => {
+	const root = mkdtempSync(join(tmpdir(), "picraft-permission-mode-forwarding-"));
+	try {
+		const store = new PermissionSnapshotStore(root);
+		assert.equal(store.publish("parent-session", 1, [], [], "allow_all"), true);
+		const view = loadParentGrantView(root, "parent-session");
+		assert.equal(view?.mode, "allow_all");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("parent snapshots expose exact trusted files as approved reads", () => {
 	const root = mkdtempSync(join(tmpdir(), "picraft-permission-forwarding-"));
 	const authority = new PermissionAuthority();
