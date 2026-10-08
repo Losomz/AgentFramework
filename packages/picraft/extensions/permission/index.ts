@@ -1,15 +1,17 @@
 import {
-	type ExtensionAPI,
 	getAgentDir,
 	getPackageDir,
+	type ExtensionAPI,
 	type ExtensionContext,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
+import { type Component, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
 import {
 	formatPermissionModeStatus,
 	PERMISSION_AUDIT_ENTRY,
 	PERMISSION_SUMMARY_ENTRY,
-	permissionActivityWidgetLines,
+	permissionActivityLines,
 	PermissionActivityTracker,
 	registerPermissionActivityRenderers,
 	type PermissionActivityAuthorization,
@@ -45,9 +47,7 @@ import {
 } from "./forwarding.ts";
 import { getOutstandingRequirements, type PermissionPromptDecision } from "./presentation.ts";
 import { requestPermissionDecision } from "./ui.ts";
-
-const PERMISSION_STATUS_KEY = "permission";
-const PERMISSION_WIDGET_KEY = "permission-activity";
+import { clearPicraftStatus, updatePicraftStatus } from "../shared/status-widget.ts";
 
 export default function permissionExtension(pi: ExtensionAPI): void {
 	if (!claimPermissionExtensionRegistration()) return;
@@ -59,7 +59,6 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 	const policyByCwd = new Map<string, ReturnType<typeof buildPermissionPathPolicy>>();
 	let parentContext: ExtensionContext | undefined;
 	let unsubscribeTerminalFileTrust: (() => void) | undefined;
-	let activityListExpanded = false;
 
 	registerPermissionActivityRenderers(pi);
 
@@ -67,15 +66,22 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 		try {
 			const status = formatPermissionModeStatus(authority.modeFor(currentSessionId(ctx)), activity.activeRecords().length);
-			ctx.ui.setStatus(PERMISSION_STATUS_KEY, ctx.ui.theme.fg("accent", status));
-			ctx.ui.setWidget(
-				PERMISSION_WIDGET_KEY,
-				permissionActivityWidgetLines(activity, activityListExpanded),
-				{ placement: "aboveEditor" },
-			);
+			updatePicraftStatus(ctx, "permission", { text: status, color: "accent" });
 		} catch {
 			// UI teardown must not affect permission decisions or audit delivery.
 		}
+	};
+
+	const showActivityList = async (ctx: ExtensionContext): Promise<void> => {
+		const lines = permissionActivityLines(activity, true);
+		if (!lines) {
+			ctx.ui.notify("No permission activity recorded for this run.", "info");
+			return;
+		}
+		await ctx.ui.custom<void>(
+			(_tui, theme, _keybindings, done) => new PermissionActivityViewer(theme, lines, done),
+			{ overlay: true },
+		);
 	};
 
 	const persistActivityEvent = (event: PermissionActivityEvent, ctx: ExtensionContext): void => {
@@ -129,7 +135,6 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		if (childProcess) return;
 		parentContext = ctx;
 		activity.resetRun();
-		activityListExpanded = false;
 		const sessionId = currentSessionId(ctx);
 		authority.activateSession(sessionId);
 		renderActivity(ctx);
@@ -159,7 +164,6 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 
 	pi.on("agent_start", (_event, ctx) => {
 		activity.resetRun();
-		activityListExpanded = false;
 		renderActivity(ctx);
 	});
 
@@ -284,13 +288,11 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 			const sessionId = currentSessionId(ctx);
 			const command = args.trim().toLowerCase();
 			if (command === "list") {
-				activityListExpanded = true;
-				renderActivity(ctx);
+				await showActivityList(ctx);
 				return;
 			}
 			if (command === "list close") {
-				activityListExpanded = false;
-				renderActivity(ctx);
+				ctx.ui.notify("Permission activity closes with Esc or Enter.", "info");
 				return;
 			}
 			if (command === "mode") {
@@ -326,8 +328,7 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		unsubscribeTerminalFileTrust = undefined;
 		if (ctx.hasUI) {
 			try {
-				ctx.ui.setStatus(PERMISSION_STATUS_KEY, undefined);
-				ctx.ui.setWidget(PERMISSION_WIDGET_KEY, undefined);
+				clearPicraftStatus(ctx);
 			} catch {
 				// UI teardown is already in progress.
 			}
@@ -337,9 +338,33 @@ export default function permissionExtension(pi: ExtensionAPI): void {
 		authority.clearSession(currentSessionId(ctx));
 		policyByCwd.clear();
 		activity.resetRun();
-		activityListExpanded = false;
 		releasePermissionExtensionRegistration();
 	});
+}
+
+class PermissionActivityViewer implements Component {
+	constructor(
+		private readonly theme: Theme,
+		private readonly lines: readonly string[],
+		private readonly done: () => void,
+	) {}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, "escape") || matchesKey(data, "return")) this.done();
+	}
+
+	render(width: number): string[] {
+		const content = [
+			this.theme.fg("accent", "Permission activity"),
+			"",
+			...this.lines,
+			"",
+			this.theme.fg("muted", "Press Enter or Esc to close"),
+		];
+		return content.map((line) => truncateToWidth(line, Math.max(1, width), "", false));
+	}
+
+	invalidate(): void {}
 }
 
 function permissionModeLabel(mode: PermissionAuthorizationMode): string {

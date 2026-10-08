@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
 	formatPermissionModeStatus,
 	PermissionActivityTracker,
-	permissionActivityWidgetLines,
+	permissionActivityLines,
 } from "../activity.ts";
 import type { PermissionRequest } from "../core.ts";
 
@@ -33,14 +33,14 @@ test("activity tracks running and completed external access with a summary", () 
 
 	const started = tracker.markRunning("tool-1", 1_000);
 	assert.equal(started?.phase, "start");
-	assert.equal(permissionActivityWidgetLines(tracker)?.[1].startsWith("ACTIVE"), true);
+	assert.equal(permissionActivityLines(tracker)?.[1].startsWith("ACTIVE"), true);
 
 	const finished = tracker.finish("tool-1", "succeeded", 1_850);
 	assert.equal(finished?.phase, "finish");
 	assert.equal(finished?.record.id, record.id);
 	assert.equal(finished?.record.authorization, "auto");
 	assert.equal(finished?.record.durationMs, 850);
-	assert.equal(permissionActivityWidgetLines(tracker, true)?.some((line) => line.startsWith("DONE")), true);
+	assert.equal(permissionActivityLines(tracker, true)?.some((line) => line.startsWith("DONE")), true);
 	assert.deepEqual(tracker.summary(2_000), {
 		version: 1,
 		allowed: 1,
@@ -94,8 +94,8 @@ test("blocked access is counted and mode status is explicit", () => {
 		startedAt: tracker.summary(3_100)?.startedAt,
 		endedAt: 3_100,
 	});
-	assert.equal(formatPermissionModeStatus("ask"), "perm: ASK");
-	assert.equal(formatPermissionModeStatus("allow_all", 1), "perm: ALL (session) · 1 active");
+	assert.equal(formatPermissionModeStatus("ask"), "⚿ perm ask");
+	assert.equal(formatPermissionModeStatus("allow_all", 1), "⚿ perm all (session) · 1 active");
 });
 
 
@@ -104,18 +104,18 @@ test("compact activity expands one active record and summarizes multiple records
 	tracker.register("tool-one", externalReadRequest(), "/workspace/project");
 	tracker.markRunning("tool-one", 1_000);
 
-	const single = permissionActivityWidgetLines(tracker);
+	const single = permissionActivityLines(tracker);
 	assert.equal(single?.[0], "External access · 1 active");
 	assert.equal(single?.[1].startsWith("ACTIVE"), true);
 
 	tracker.register("tool-two", externalReadRequest({ toolName: "write" }), "/workspace/project");
 	tracker.markRunning("tool-two", 1_100);
-	const multiple = permissionActivityWidgetLines(tracker);
+	const multiple = permissionActivityLines(tracker);
 	assert.deepEqual(multiple, [
 		"External access · 2 active",
 		"Use /permissions list to view the full list",
 	]);
 
-	const expanded = permissionActivityWidgetLines(tracker, true);
+	const expanded = permissionActivityLines(tracker, true);
 	assert.equal(expanded?.filter((line) => line.startsWith("ACTIVE")).length, 2);
 });

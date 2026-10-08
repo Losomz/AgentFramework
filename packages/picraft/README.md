@@ -16,9 +16,9 @@ Restart Pi after installation, or run `/reload` in an existing Pi session.
 
 ## Included Workflows
 
-- Plan: a persistent planning mode that distinguishes inquiries from implementation tasks, gates execution on a proposed plan, and guards write tools with explicit execution handoff. Use `/plan menu` to reopen dismissed execution choices while the current plan is available.
+- Plan: a persistent planning mode with a fixed `plan`/`normal` status line that distinguishes inquiries from implementation tasks, gates execution on a proposed plan, and guards write tools with explicit execution handoff. Use `/plan menu` to reopen dismissed execution choices while the current plan is available.
 - Questionnaire: structured intent clarification with single-choice, multiple-choice, and free-form answers in the Pi TUI.
-- Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing, session-scoped Ask or Allow all modes, compact active-activity display, `/permissions list`, and external-access audit records.
+- Permission: project-boundary and sensitive-file approval with parent/child session authorization sharing, session-scoped Ask or Allow all modes, a persistent `perm` status line, `/permissions list` overlay details, and external-access audit records.
 - Throughput: live and final AI output throughput with provider usage, delta fallback estimation, TTFT, and `/throughput` details.
 - Subagent: bundled General, Explore, and Scout agents with per-agent model and thinking configuration. Scout uses a controlled Git tool and deterministic checkouts under `~/.cache/picraft/scout/repos`.
 - Git: commit, pull, and branch workflows under `/git`.

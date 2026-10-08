@@ -80,7 +80,7 @@ PiCraft Permission 仍会通过 Pi 的工具调用流程处理原生 MCP 工具�
 
 PiCraft 自带 `permission/` 扩展，不需要额外安装权限 package。策略采用 `allow / ask / deny` 三态：Execute 模式下，项目内普通操作、当前 worktree 的 Git 管理目录、Pi package 资源、`~/.cache/picraft/scout` 受管缓存以及普通 sessions/logs 默认允许读取；其他外部路径以及 `.env`、`auth.json`、`models.json` 读取会询问。当前会话可通过 `/permissions` 或 `/permissions mode` 切换为 `Allow all for this session`，自动放行所有策略判定为 `ask` 的外部权限，但不会绕过 `deny`。用户通过 Pi TUI 拖入或粘贴的现存普通文件会获得当前会话的精确只读信任；用户明确提交的敏感文件也不重复询问，但目录、相邻文件和任何写操作不会因此放行。Scout 缓存只获得普通读取信任，敏感读取和普通写入仍保持审批。外部只读目标存在明确的项目、包或引擎 manifest 时，`Allow always` 会覆盖该标记根目录，避免同一依赖树下的文件逐个询问；外部写入仍只覆盖直接父目录。外层 Bash 使用 `nul`、`NUL`、`nul:`、`$null` 或 Windows 保留设备名作为路径时直接拒绝；Bash 空设备使用 `/dev/null`。
 
-审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；`Allow all for this session` 只在当前父会话内生效，Subagent 继承该模式但不能自行开启；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。`perm: ALL (session)` 会显示在状态栏；外部权限实际执行时，编辑器上方 widget 显示 `RUN` 和完成结果，任务结束追加权限统计，完成记录写入当前 session 但不进入模型上下文。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空细粒度授权。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
+审批支持允许一次、当前父对话允许和拒绝。Always 规则由父对话的集中 authority 管理并区分读写作用域；`Allow all for this session` 只在当前父会话内生效，Subagent 继承该模式但不能自行开启；Subagent 通过会话期授权快照直接复用仍有效的规则，未匹配请求通过文件邮箱交给父 authority，Subagent 本身仍使用 `--mode json -p --no-session`。`⚿ perm all (session)` 会显示在状态栏；权限活动不再常驻编辑器上方，使用 `/permissions list` 打开包含活动与最近完成记录的 overlay，任务结束追加权限统计，完成记录写入当前 session 但不进入模型上下文。authority 的授权源只存于父进程内存，快照和邮箱位于 Pi sessions 目录并在会话结束时失效；`/permissions` 可查看、撤销或清空细粒度授权。无 UI、父 authority 不可用或 IPC 校验失败时默认拒绝。该扩展是工具调用审批层，不是操作系统安全边界。
 
 ### 从手工副本迁移
 

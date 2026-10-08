@@ -173,7 +173,7 @@ export class PermissionActivityTracker {
 	}
 }
 
-export function permissionActivityWidgetLines(
+export function permissionActivityLines(
 	tracker: PermissionActivityTracker,
 	expanded = false,
 ): string[] | undefined {
@@ -222,7 +222,7 @@ export function registerPermissionActivityRenderers(pi: ExtensionAPI): void {
 
 export function formatPermissionModeStatus(mode: "ask" | "allow_all", activeCount = 0): string {
 	const suffix = activeCount > 0 ? ` · ${activeCount} active` : "";
-	return mode === "allow_all" ? `perm: ALL (session)${suffix}` : `perm: ASK${suffix}`;
+	return mode === "allow_all" ? `⚿ perm all (session)${suffix}` : `⚿ perm ask${suffix}`;
 }
 
 function formatActivityLine(status: string, record: PermissionActivityRecord): string {

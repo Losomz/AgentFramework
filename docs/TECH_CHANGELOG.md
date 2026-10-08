@@ -12,8 +12,8 @@
 ### Permission 授权模式
 
 - 增加当前会话级 `Ask / Allow all for this session` 模式；全部放行只自动通过 Permission 策略产生的 `ask` 请求，不绕过明确 `deny`，并由父会话统一同步给 Subagent。
-- 增加外部权限活动 widget、session custom audit entries 和 Agent run 汇总；记录工具、代理、目标范围、授权方式、结果与耗时，不写入文件内容、命令输出或敏感参数。
-- Permission 活动显示改为单条活动直接展开、多条活动显示 active 数量，并增加 `/permissions list` 查看完整安全清单；Permission 状态使用 Pi accent 青色。
+- 增加外部权限活动记录、session custom audit entries 和 Agent run 汇总；记录工具、代理、目标范围、授权方式、结果与耗时，不写入文件内容、命令输出或敏感参数。
+- Permission 活动改为不占用编辑器上方的常驻空间，Permission 状态保留在状态栏，`/permissions list` 打开包含活动与最近完成记录的 overlay；Permission 状态使用 Pi accent 青色。
 
 ### AI 吞吐
 
@@ -60,6 +60,7 @@
 - 修复 `/git commit` 启动前依赖 `General` profile、在 package 迁移期可能报“未找到 General profile”的问题；现在直接启动工具限制为 `read,bash` 的专用 `GitCommit` Pi 进程，命令立即返回，运行中只显示单行状态框，结束后通过通知反馈。
 - 修复 Windows 下 Pi 子进程通过 shell 传递任务参数的转义风险，并补齐 AbortSignal 的强制终止回退与监听器、定时器、临时文件清理。
 - 修复 linked worktree Git 管理目录、Pi 插件/package、附件和精确 `pi-bash` 输出被误判为外部路径，以及同一地址 Always 后重复询问的问题。
+- 修复 Plan、Permission 与 Throughput 扩展分别加载未缓存模块时共享状态被后续 widget 覆盖的问题；共享状态现在使用进程级 singleton，并按 session ID 初始化，Plan 生命周期不会清除 Permission 状态。
 - 修复任意名称的用户拖入文件仍触发外部目录或敏感读取询问的问题；Permission 现在从真实终端粘贴事件登记现存普通文件，并继续拒绝把普通提示文本、目录或同目录文件扩大为信任范围。
 - 为 `0.1.3` 修复 Permission 在长命令或长路径授权期间因 `Working...` 动画持续重排无界内容而拖慢整个 TUI 的问题；授权页缓存稳定帧，并对目标与会话授权范围采用保留首尾的有界展示，静态项目/Git 路径策略也按工作目录复用。
 

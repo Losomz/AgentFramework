@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadPlanToolConfiguration } from "./config.ts";
+import { refreshPicraftStatus } from "../shared/status-widget.ts";
+import { createPlanModeStatusComponent, PLAN_STATUS_WIDGET_KEY } from "./status.ts";
 import {
 	buildExecuteMessage,
 	buildPlanExecutionMessage,
@@ -88,13 +90,14 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 
 	function updateStatus(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		const text = state.pending
-			? ctx.ui.theme.fg("warning", `⏳ ${state.mode} → ${state.pending.target}`)
-			: state.mode === "plan"
-				? ctx.ui.theme.fg("warning", "⏸ plan")
-				: undefined;
-		ctx.ui.setStatus("plan", text);
-		ctx.ui.setStatus("plan-mode", undefined);
+		if (ctx.mode === "tui") {
+			ctx.ui.setWidget(
+				PLAN_STATUS_WIDGET_KEY,
+				(_tui, theme) => createPlanModeStatusComponent(theme, state.mode, state.pending?.target),
+				{ placement: "belowEditor" },
+			);
+			refreshPicraftStatus(ctx);
+		}
 		ctx.ui.setWidget("plan-todos", undefined);
 	}
 
@@ -466,7 +469,10 @@ export function registerPlanExtension(pi: ExtensionAPI, options: PlanExtensionOp
 	});
 
 	pi.on("session_tree", async (_event, ctx) => hydrateCurrentBranch(ctx));
-	pi.on("session_shutdown", async () => invalidateDeferredExecute());
+	pi.on("session_shutdown", async (_event, ctx) => {
+		invalidateDeferredExecute();
+		if (ctx.hasUI && ctx.mode === "tui") ctx.ui.setWidget(PLAN_STATUS_WIDGET_KEY, undefined);
+	});
 }
 
 export default function planExtension(pi: ExtensionAPI): void {

@@ -5,32 +5,58 @@ import {
 	formatThroughputStatus,
 	ThroughputTracker,
 } from "./state.ts";
+import { clearPicraftStatus, updatePicraftStatus } from "../shared/status-widget.ts";
 
-const STATUS_KEY = "throughput";
+const TICK_MS = 500;
 
 export default function throughputExtension(pi: ExtensionAPI): void {
 	const tracker = new ThroughputTracker();
 	let enabled = true;
+	let streaming = false;
+	let currentContext: ExtensionContext | undefined;
+	let ticker: ReturnType<typeof setInterval> | undefined;
+
+	const stopTicker = (): void => {
+		if (ticker === undefined) return;
+		clearInterval(ticker);
+		ticker = undefined;
+	};
 
 	const render = (ctx: ExtensionContext): void => {
+		currentContext = ctx;
 		if (!ctx.hasUI) return;
 		if (!enabled) {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
+			updatePicraftStatus(ctx, "throughput", undefined);
 			return;
 		}
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", formatThroughputStatus(tracker.snapshot())));
+		updatePicraftStatus(ctx, "throughput", {
+			text: formatThroughputStatus(tracker.snapshot()),
+			color: "accent",
+		});
+	};
+
+	const startTicker = (): void => {
+		if (currentContext?.mode !== "tui" || !currentContext.hasUI || ticker !== undefined) return;
+		ticker = setInterval(() => {
+			if (!streaming || currentContext === undefined) return;
+			render(currentContext);
+		}, TICK_MS);
 	};
 
 	pi.on("session_start", (_event, ctx) => {
+		stopTicker();
 		tracker.reset();
 		enabled = true;
+		streaming = false;
 		render(ctx);
 	});
 
 	pi.on("message_start", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
 		tracker.start(Date.now(), event.message.model);
+		streaming = true;
 		render(ctx);
+		startTicker();
 	});
 
 	pi.on("message_update", (event, ctx) => {
@@ -38,12 +64,16 @@ export default function throughputExtension(pi: ExtensionAPI): void {
 		const streamEvent = event.assistantMessageEvent;
 		const delta = "delta" in streamEvent && typeof streamEvent.delta === "string" ? streamEvent.delta : undefined;
 		tracker.update(delta, event.message.usage.output, Date.now());
-		render(ctx);
+		streaming = true;
+		currentContext = ctx;
+		startTicker();
 	});
 
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
 		tracker.finish(event.message.usage.output, Date.now(), event.message.model);
+		streaming = false;
+		stopTicker();
 		render(ctx);
 	});
 
@@ -54,10 +84,12 @@ export default function throughputExtension(pi: ExtensionAPI): void {
 			if (command === "on") {
 				enabled = true;
 				render(ctx);
+				if (streaming) startTicker();
 				return;
 			}
 			if (command === "off") {
 				enabled = false;
+				stopTicker();
 				render(ctx);
 				return;
 			}
@@ -66,6 +98,9 @@ export default function throughputExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
-		if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);
+		stopTicker();
+		streaming = false;
+		currentContext = undefined;
+		clearPicraftStatus(ctx);
 	});
 }
